@@ -2,7 +2,7 @@
 window.initBabonLogic = function (namagroup18, Comment18) {
 
 
-    // --- 1. ANTI-THROTTLE & KEEP-ALIVE (Solusi Tab Background) ---
+    // --- 1. ANTI-THROTTLE & KEEP-ALIVE (Solusi Tab Background) ---a
     (function () {
         // Memaksa properti visibility agar selalu 'visible'
         Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true });
