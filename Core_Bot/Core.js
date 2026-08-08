@@ -1,5 +1,5 @@
 // babon_core.js
-window.initBabonLogic = function (namagroup18, Comment18) {
+window.initBabonLogic = function (namagroup19, Comment19) {
 
 
     // --- 1. ANTI-THROTTLE & KEEP-ALIVE (Solusi Tab Background) ---a
@@ -28,14 +28,14 @@ window.initBabonLogic = function (namagroup18, Comment18) {
 
 
     // Menentukan URL berdasarkan variabel global pasar (dari @require)
-    var baseURL = `http://127.0.0.1:8080/${Comment18}.json`;
+    var baseURL = `http://127.0.0.1:8080/${Comment19}.json`;
     var URLGROUP = baseURL;
 
     if (typeof pasar !== 'undefined') {
         if (pasar === "SG") {
-            URLGROUP = `http://127.0.0.1:8080/${Comment18}_SG.json`;
+            URLGROUP = `http://127.0.0.1:8080/${Comment19}_SG.json`;
         } else if (pasar === "SD") {
-            URLGROUP = `http://127.0.0.1:8080/${Comment18}_SD.json`;
+            URLGROUP = `http://127.0.0.1:8080/${Comment19}_SD.json`;
         }
     }
     var nama_FB_Global = "Unknown"
@@ -45,7 +45,7 @@ window.initBabonLogic = function (namagroup18, Comment18) {
     var TELEGRAM_TOKEN = '8841941027:AAGt1LTI8GCVAOb2EAQzaQTP33n-qJTrFa4';
     var TELEGRAM_CHAT_ID = '-1002717306025';
     let adminList = [];
-    var SCRIPT_NAME = Comment18
+    var SCRIPT_NAME = Comment19
     let isAdminListReady = false; // Flag penanda kesiapan data
     var refresh = 500; // Percepat durasi animasi tarik layar agar selesai dalam 200ms
     var refreshNonUser = 500;
@@ -255,9 +255,9 @@ window.initBabonLogic = function (namagroup18, Comment18) {
                                 }
                             });
 
-                            if (namagroup18 && Comment18) {
-                                groupNames.push(normalizeToBasicLatin(namagroup18).toLowerCase());
-                                CommentList.push(Comment18);
+                            if (namagroup19 && Comment19) {
+                                groupNames.push(normalizeToBasicLatin(namagroup19).toLowerCase());
+                                CommentList.push(Comment19);
                             }
 
                             console.log("✅ Group list berhasil diambil dari " + urlToFetch + ":", groupNames.length);
