@@ -16,5 +16,7 @@
 {"group":"K86","comment":"K86TOTO ( DROPOUT ) : 00*31*97"},
 {"group":"TOYIB","comment":"#TOYIBSLOT ( BOKER23 ) : 29*18*06"},
 {"group":"WAKA","comment":"#WAKATOTO ( BAJINDUL2 ) 35*96"},
-{"group":"KOI","comment":"#KOITOTO ( BAJINDUL2 ) 34*11"}
+{"group":"KOI","comment":"#KOITOTO ( BAJINDUL2 ) 34*11"},
+{"group":"","comment":""},
+{"group":"","comment":""}
 ]
