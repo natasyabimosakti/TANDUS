@@ -156,15 +156,13 @@ window.initBabonLogic = function (namagroup19, Comment19) {
             sedangProses = !!dialog;
 
             // 2. Logika Mutasi Nodes
+            let needCheckMasalah = false;
             for (const mutation of mutations) {
                 for (const node of mutation.addedNodes) {
                     // Jangan skip node tipe 3 (Text) karena Facebook mungkin hanya menambah Text Node
                     if (node.nodeType !== 1 && node.nodeType !== 3) continue;
 
-                    // Cek Masalah & Status Post
-                    cekMasalah();
-                    cekMasalah2();
-                    cekLogout();
+                    needCheckMasalah = true;
 
                     // Cek Aktivitas Terbaru (Hanya di halaman grup)
                     if (!commentDone && cekurlutama.includes("group")) {
@@ -191,6 +189,13 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                         }
                     }
                 }
+            }
+
+            // Panggil cek masalah HANYA 1 kali per batch mutasi (bukan per node) untuk hemat CPU
+            if (needCheckMasalah) {
+                cekMasalah();
+                cekMasalah2();
+                cekLogout();
             }
         });
 
@@ -226,7 +231,7 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                     setTimeout(() => {
                         if (masterObserver) masterObserver.disconnect();
                         location.href = "about:blank";
-                    }, 20000);
+                    }, 30000);
                 }
             }
         });
@@ -731,7 +736,7 @@ window.initBabonLogic = function (namagroup19, Comment19) {
 
             setTimeout(() => {
                 location.href = "about:blank";
-            }, 20000);
+            }, 30000);
         });
 
     }
@@ -743,51 +748,57 @@ window.initBabonLogic = function (namagroup19, Comment19) {
 
         if (!myObservere) {
             myObservere = new MutationObserver((mutations) => {
+                if (commentDone) return;
+
+                let hasNewNodes = false;
                 for (const mutation of mutations) {
                     for (const node of mutation.addedNodes) {
+                        if (node.nodeType === 1) {
+                            hasNewNodes = true;
+                            break;
+                        }
+                    }
+                    if (hasNewNodes) break;
+                }
 
-                        if (commentDone || node.nodeType !== 1) continue;
+                if (hasNewNodes) {
+                    const textarea = document.querySelector(TXT_SEL);
+                    const sendBtn = document.querySelector(BTN_SEL);
 
-                        const textarea = document.querySelector(TXT_SEL);
-                        const sendBtn = document.querySelector(BTN_SEL);
+                    if (textarea && sendBtn) {
+                        commentDone = true;
+                        console.time("Kirim Komentar");
+                        if (nativeSetter) nativeSetter.call(textarea, commentToPost);
+                        else textarea.value = commentToPost;
+                        sendBtn.disabled = false;
+                        sendBtn.dispatchEvent(mDown);
+                        sendBtn.click();
+                        console.timeEnd("Kirim Komentar");
+                        console.timeEnd("Data Ditemukan Sampai Prosess");
+                        Blockafter();
+                        window.focus();
+                        if (window.runBypassTurbo) window.runBypassTurbo();
+                        handlePostSuccess();
+                        if (myObservere) { myObservere.disconnect(); myObservere = null; }
+                        if (botObserver) botObserver.disconnect();
 
-
-                        if (textarea && sendBtn) {
-
-                            commentDone = true;
-                            console.time("Kirim Komentar");
-                            if (nativeSetter) nativeSetter.call(textarea, commentToPost);
-                            else textarea.value = commentToPost;
-                            sendBtn.disabled = false;
-                            sendBtn.dispatchEvent(mDown);
-                            sendBtn.click();
-                            console.timeEnd("Kirim Komentar");
-                            console.timeEnd("Data Ditemukan Sampai Prosess")
-                            Blockafter()
-                            window.focus();
-                            if (window.runBypassTurbo) window.runBypassTurbo();
-                            handlePostSuccess();
-                            if (myObservere) { myObservere.disconnect(); myObservere = null; }
-                            if (botObserver) botObserver.disconnect();
-                            if (ToastProfile === "") {
-                                const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
-                                if (toast && toast.textContent) ToastProfile = toast.textContent.trim();
-                            }
-
-                            kirimDataKeLokal({
-                                "type": "Online",
-                                "profile": ToastProfile,
-                                "account": {
-                                    [SCRIPT_NAME]: nama_FB_Global
-                                },
-                                "group": grouptToPost,
-                                "models": "Komentari",
-                                "pasar": pasar
-                            });
-
-                            return true;
+                        if (ToastProfile === "") {
+                            const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
+                            if (toast && toast.textContent) ToastProfile = toast.textContent.trim();
                         }
 
+                        kirimDataKeLokal({
+                            "type": "Online",
+                            "profile": ToastProfile,
+                            "account": {
+                                [SCRIPT_NAME]: nama_FB_Global
+                            },
+                            "group": grouptToPost,
+                            "models": "Komentari",
+                            "pasar": pasar
+                        });
+
+                        return true;
                     }
                 }
             });
@@ -1294,8 +1305,8 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                 setTimeout(heartbeat, refreshNonUser);
                 return;
             }
-            if (document.querySelectorAll("[data-tracking-duration-id]").length > 0) {
-                if (isUserPage && JumlahKontent > 2) {
+            if (!document.querySelector(".prevent-scrolling")) {
+                if (isUserPage) {
                     simulateHumanPullToRefresh();
                 } else {
                     // HAPUS OBFUSCATE (unicode \u{f1953}, dsb) karena sangat rawan berubah.
@@ -1369,7 +1380,13 @@ window.initBabonLogic = function (namagroup19, Comment19) {
         }, 10000);
         nama_FB_Global = await getFacebookName();
         ToastProfile = "";
+        const wrapper = document.querySelector('[aria-label*="Kirim permintaan pertemanan" i]');
+        const actualBtn = wrapper ? wrapper.querySelector('[role="button"]') : null;
 
+        if (actualBtn) {
+            actualBtn.focus();
+            actualBtn.click();
+        }
         var kiriminterval = setInterval(() => {
             // Selalu coba cari ToastProfile jika masih kosong
             if (ToastProfile === "") {
@@ -1454,6 +1471,18 @@ window.initBabonLogic = function (namagroup19, Comment19) {
             } else if (attempts >= 10) {
                 console.log('❌ Tombol tidak ditemukan setelah 10 kali percobaan. Berhenti.');
                 clearInterval(interval);
+            }
+
+
+            const wrapper = document.querySelector('[aria-label*="Kirim permintaan pertemanan" i]');
+            const target = wrapper?.querySelector('[role="button"]');
+
+            if (target) {
+                target.focus();
+
+                const keyOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true };
+                target.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
+                target.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
             }
         }, 2000); // Coba setiap 1 detik
     })();
