@@ -5,7 +5,7 @@
 {"group":"NEMO","comment":"NEMO4D (BUSUNGLAPAR) : 90*22*10"},
 {"group":"KIYO","comment":"#KIYO4D(BAYGON88)*32*05#10"},
 {"group":"BLITAR","comment":"#BLITAR4D (BEBEK70) = 02*26"},
-{"group":"HOHO","comment":"BLUR005 : 98*23*16 #HOHOTOGEL"},
+{"group":"HOHO","comment":"BLURoo5 : 98*23*16 #HOHOTOGEL"},
 {"group":"DIVA","comment":"#DIVA4D (BANGOR87) = 01*12*94"},
 {"group":"JET4D","comment":"#JET4D #BETTING2D (BAGUSDEWE) = 27*09#10"},
 {"group":"TIKTAK","comment":"Tiktaktogel / BUNTEL / 19 , 04 , 28"},
@@ -17,6 +17,6 @@
 {"group":"TOYIB","comment":"#TOYIBSLOT ( BOKER23 ) : 29*18*06"},
 {"group":"WAKA","comment":"#WAKATOTO ( BAJINDUL2 ) 35*96"},
 {"group":"KOI","comment":"#KOITOTO ( BAJINDUL2 ) 34*11"},
-{"group":"","comment":""},
-{"group":"","comment":""}
+{"group":"TESTER1","comment":""},
+{"group":"TESTER2","comment":""}
 ]
