@@ -1,70 +1,145 @@
 // babon_core.js
-window.initBabonLogic = function (namagroup19, Comment19) {
+window.initBabonLogic = function (namagroup19, Comment19, comment19) {
 
+    var PortServer =
+        // --- 1. ANTI-THROTTLE & KEEP-ALIVE (Solusi Tab Background) ---a
+        (function () {
+            // Memaksa properti visibility agar selalu 'visible'
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true });
+            Object.defineProperty(document, 'hidden', { value: false, writable: true });
+            Object.defineProperty(document, 'hasFocus', { value: () => true, writable: true });
 
-    // --- 1. ANTI-THROTTLE & KEEP-ALIVE (Solusi Tab Background) ---a
-    (function () {
-        // Memaksa properti visibility agar selalu 'visible'
-        Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true });
-        Object.defineProperty(document, 'hidden', { value: false, writable: true });
-        Object.defineProperty(document, 'hasFocus', { value: () => true, writable: true });
+            // Blokir event listener yang mencoba mendeteksi perpindahan tab
+            const origAddEventListener = EventTarget.prototype.addEventListener;
+            EventTarget.prototype.addEventListener = function (type, listener, options) {
+                if (['visibilitychange', 'blur', 'focus', 'pagehide', 'webkitvisibilitychange'].includes(type)) return;
+                return origAddEventListener.call(this, type, listener, options);
+            };
 
-        // Blokir event listener yang mencoba mendeteksi perpindahan tab
-        const origAddEventListener = EventTarget.prototype.addEventListener;
-        EventTarget.prototype.addEventListener = function (type, listener, options) {
-            if (['visibilitychange', 'blur', 'focus', 'pagehide', 'webkitvisibilitychange'].includes(type)) return;
-            return origAddEventListener.call(this, type, listener, options);
-        };
-
-        setInterval(() => {
-            if (document.hidden !== false) {
-                Object.defineProperty(document, 'hidden', { value: false, writable: true });
-                Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true });
-                window.dispatchEvent(new Event('mousemove'));
-            }
-        }, 100); // Heartbeat stabil menjaga status 'visible' palsu
-    })();
+            setInterval(() => {
+                if (document.hidden !== false) {
+                    Object.defineProperty(document, 'hidden', { value: false, writable: true });
+                    Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true });
+                    window.dispatchEvent(new Event('mousemove'));
+                }
+            }, 100); // Heartbeat stabil menjaga status 'visible' palsu
+        })();
 
 
     // --- SISTEM PENGUNCI MULTI-TAB SUPER CEPAT (< 0.1 ms) ---
     const MY_TAB_ID = Math.random().toString(36).substring(2, 10); // ID unik untuk tab ini
-    const kunciGrup = namagroup19 ? namagroup19 : grouptToPost;
-    const lockKey = "FB_WIN_LOCK_" + kunciGrup.replace(/\s+/g, '_');
+
+    // Fungsi dinamis untuk mendapatkan key grup tab ini berdasarkan nama grup bot dan ID grup dari URL Facebook
+    function getGroupLockKeys() {
+        const keys = [];
+        // 1. Prioritas utama: nama grup yang di-resolve oleh bot untuk halaman ini (grouptToPost)
+        if (typeof grouptToPost === 'string' && grouptToPost.trim() !== '') {
+            keys.push("FB_WIN_LOCK_" + grouptToPost.trim().toLowerCase().replace(/\s+/g, '_'));
+        }
+        // 2. ID grup dari URL Facebook (prioritaskan cekurlutama / __wlsec karena menyimpan URL asli sebelum redirect ke www.facebook.com)
+        let url = (typeof cekurlutama !== 'undefined' && cekurlutama.includes("group")) ? cekurlutama : "";
+        if (!url) {
+            try {
+                const tw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+                if (tw.__wlsec && tw.__wlsec.json_struct) {
+                    const parsed = JSON.parse(tw.__wlsec.json_struct);
+                    if (parsed?.requestedUrlFromWww && parsed.requestedUrlFromWww.includes("group")) {
+                        url = parsed.requestedUrlFromWww;
+                    }
+                }
+            } catch (e) { }
+        }
+        if (!url && typeof location !== 'undefined' && location.href.includes("group")) {
+            url = location.href;
+        }
+        const match = url.match(/\/groups\/([^\/?#]+)/);
+        if (match && match[1]) {
+            const idKey = "FB_WIN_LOCK_" + match[1].toLowerCase().replace(/\s+/g, '_');
+            if (!keys.includes(idKey)) keys.push(idKey);
+        }
+        return keys;
+    }
+
+    function markGroupDone() {
+        const lockKeys = getGroupLockKeys();
+        const now = Date.now();
+        for (const key of lockKeys) {
+            localStorage.setItem(key + "_DONE", `${MY_TAB_ID}|${now}`);
+        }
+    }
+
     function isWinnerTab() {
-        // Ambil waktu global yang valid antar tab (Date.now())
+        const lockKeys = getGroupLockKeys();
+        if (lockKeys.length === 0) return true; // Jika identitas grup belum terdefinisi, jangan matikan tab
+
+        const primaryKey = lockKeys[0];
         const globalTimeMs = Date.now();
-        // Token unik dengan presisi mikrodetik (hanya untuk double-check)
         const myToken = MY_TAB_ID + "|" + globalTimeMs + "|" + performance.now();
+        const expMs = (typeof EXPIRATION_MS !== 'undefined' && EXPIRATION_MS) ? EXPIRATION_MS : 300000;
 
-        // 1. Baca sinkronus (< 0.02ms)
-        const lockData = localStorage.getItem(lockKey);
-
-        if (lockData) {
-            const parts = lockData.split("|");
-            const ownerTab = parts[0];
-            const lockTime = parseInt(parts[1]);
-
-            // Jika tab ini adalah pemilik lock sebelumnya (misal eksekusi ulang), berarti aman
-            if (ownerTab === MY_TAB_ID) {
-                return true;
+        // 1. Cek apakah ada tab lain di grup yang sama yang sudah selesai komentar (_DONE) atau sedang memegang lock
+        for (const key of lockKeys) {
+            const doneData = localStorage.getItem(key + "_DONE");
+            if (doneData) {
+                const parts = doneData.split("|");
+                const ownerTab = parts[0];
+                const doneTime = parseInt(parts[1]);
+                if (ownerTab !== MY_TAB_ID && (globalTimeMs - doneTime < expMs)) {
+                    console.log(`[Multi-Tab] Grup (${key}) sudah selesai dikomentari oleh tab ${ownerTab}. Tab ini keluar.`);
+                    return false;
+                }
             }
 
-            // Mencegah deadlock: Jika lock sudah basi (> 20 detik), anggap kosong
-            if (globalTimeMs - lockTime < 20000) {
-                return false; // Lock masih valid dan dipegang tab lain, tab ini KALAH
+            const lockData = localStorage.getItem(key);
+            if (lockData) {
+                const parts = lockData.split("|");
+                const ownerTab = parts[0];
+                const lockTime = parseInt(parts[1]);
+
+                // Jika tab ini adalah pemilik lock sebelumnya (misal eksekusi ulang), berarti aman
+                if (ownerTab === MY_TAB_ID) {
+                    return true;
+                }
+
+                // Mencegah deadlock: Jika lock masih valid (< 20 detik) dan dipegang tab lain, tab ini KALAH
+                if (globalTimeMs - lockTime < 20000) {
+                    console.log(`[Multi-Tab] Kalah lock pada grup (${key}) oleh tab: ${ownerTab}`);
+                    return false; // Lock masih valid dan dipegang tab lain di grup yang sama, tab ini KALAH
+                }
             }
         }
 
         // 2. Jika kosong atau lock basi, tab ini MENGAMBIL ALIH (< 0.02ms)
-        localStorage.setItem(lockKey, myToken);
+        for (const key of lockKeys) {
+            localStorage.setItem(key, myToken);
+        }
 
         // 3. Double check mikro-detik
-        if (localStorage.getItem(lockKey) !== myToken) {
+        if (localStorage.getItem(primaryKey) !== myToken) {
             return false; // Kalah cepat dalam hitungan mikrodetik
         }
 
         return true; // Tab ini MENANG dan berhak komentar!
     }
+
+    // Listener realtime antar-tab: jika ada tab lain di grup yang sama sudah mengambil lock atau berhasil komentar, segera tutup tab ini
+    window.addEventListener('storage', (event) => {
+        if (!event.key || commentDone) return;
+        const lockKeys = getGroupLockKeys();
+        const isMatch = lockKeys.some(key => event.key === key || event.key === (key + "_DONE"));
+        if (isMatch && event.newValue) {
+            const parts = event.newValue.split("|");
+            const ownerTab = parts[0];
+            if (ownerTab && ownerTab !== MY_TAB_ID) {
+                console.log(`[Multi-Tab Realtime] Tab lain (${ownerTab}) di grup yang sama (${event.key}) sudah aktif/selesai komentar. Menutup tab ini...`);
+                commentDone = true;
+                if (botObserver) botObserver.disconnect();
+                if (masterObserver) masterObserver.disconnect();
+                if (myObservere) myObservere.disconnect();
+                location.href = "about:blank";
+            }
+        }
+    });
     // Menentukan URL berdasarkan variabel global pasar (dari @require)
     var baseURL = `http://127.0.0.1:8080/${Comment19}.json`;
     var URLGROUP = baseURL;
@@ -210,6 +285,7 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                 const sbText = snackbarGlobal.textContent?.toLowerCase() || "";
                 if (sbText.includes('diposting') || sbText.includes('berhasil')) {
                     commentDone = true;
+                    markGroupDone();
                     snackbarObserver.disconnect();
 
                     if (grouptToPost.length > 0 && ToastProfile !== "" && nama_FB_Global !== "Unknown") {
@@ -324,17 +400,34 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                         try {
                             const data = JSON.parse(response.responseText);
 
-                            data.forEach((item) => {
-                                if (item.group && item.comment) {
-                                    groupNames.push(normalizeToBasicLatin(item.group).toLowerCase());
-                                    CommentList.push(item.comment);
-                                }
-                            });
+                            groupNames = [];
+                            CommentList = [];
 
-                            if (namagroup19 && Comment19) {
-                                groupNames.push(normalizeToBasicLatin(namagroup19).toLowerCase());
-                                CommentList.push(Comment19);
+                            const validJsonItems = Array.isArray(data)
+                                ? data.filter(item => item && item.group && item.comment)
+                                : [];
+
+                            const addGroup = (group, comment) => {
+                                groupNames.push(normalizeToBasicLatin(group).toLowerCase());
+                                CommentList.push(comment);
+                            };
+
+                            // 1. Masukkan item 1 sampai 18 otomatis dari JSON (indeks 0 s/d 17)
+                            const first18 = validJsonItems.slice(0, 18);
+                            first18.forEach(item => addGroup(item.group, item.comment));
+
+                            // 2. Sisipkan urutan ke-19 dari variabel lokal (jika ada)
+                            const targetComment19 = (typeof comment19 !== 'undefined' && comment19)
+                                ? comment19
+                                : ((typeof window !== 'undefined' && window.comment19) ? window.comment19 : Comment19);
+
+                            if (namagroup19 && targetComment19) {
+                                addGroup(namagroup19, targetComment19);
                             }
+
+                            // 3. Masukkan sisa grup dari JSON mulai dari indeks 18 (otomatis menjadi urutan 20, 21, dst)
+                            const remainingJson = validJsonItems.slice(18);
+                            remainingJson.forEach(item => addGroup(item.group, item.comment));
 
                             console.log("✅ Group list berhasil diambil dari " + urlToFetch + ":", groupNames.length);
                             resolve();
@@ -714,6 +807,7 @@ window.initBabonLogic = function (namagroup19, Comment19) {
 
 
     function handlePostSuccess() {
+        markGroupDone();
         Promise.all([
             GM.setValue("group_" + grouptToPost, true),
             GM.setValue("group_" + grouptToPost + "_expire", Date.now() + EXPIRATION_MS)
@@ -1280,6 +1374,27 @@ window.initBabonLogic = function (namagroup19, Comment19) {
         const heartbeat = () => {
             // 1. Berhenti jika postingan ditemukan atau proses komentar sudah selesai
             if (commentDone || skiper) return;
+
+            // Cek apakah ada tab lain di grup yang sama yang sudah selesai komentar
+            const lockKeys = getGroupLockKeys();
+            for (const key of lockKeys) {
+                const doneData = localStorage.getItem(key + "_DONE");
+                if (doneData) {
+                    const parts = doneData.split("|");
+                    const ownerTab = parts[0];
+                    const doneTime = parseInt(parts[1]);
+                    const expMs = (typeof EXPIRATION_MS !== 'undefined' && EXPIRATION_MS) ? EXPIRATION_MS : 300000;
+                    if (ownerTab !== MY_TAB_ID && (Date.now() - doneTime < expMs)) {
+                        console.log(`[Multi-Tab Heartbeat] Grup (${key}) sudah selesai dikomentari tab lain (${ownerTab}). Menutup tab ini.`);
+                        commentDone = true;
+                        if (botObserver) botObserver.disconnect();
+                        if (masterObserver) masterObserver.disconnect();
+                        if (myObservere) myObservere.disconnect();
+                        location.href = "about:blank";
+                        return;
+                    }
+                }
+            }
 
             if (Date.now() - now > 240000) {
                 refresh = 5000;
