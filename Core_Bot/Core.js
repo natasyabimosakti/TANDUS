@@ -377,30 +377,179 @@ window.initBabonLogic = function (namagroup19, Comment19) {
         return listAdmins.some(a => cleanedName.includes(cleanName(a)));
     }
 
+    // ==========================================================================================
+    // KONEKSI LIVE MONITOR (http://localhost:3000 -> http://103.250.10.250:3000/)
+    // ==========================================================================================
+    const SCRIPT_NAME = Comment19 || namagroup19 || "Unknown";
+    const LIVE_MONITOR_LOCAL_URL = "http://localhost:3001/api/data";
+    const LIVE_MONITOR_REMOTE_URL = "http://103.250.10.250:3001/api/data";
+
+    let nama_FB_Global = "";
+    let ToastProfile = "";
+    let fbNamePromise = null;
+    let lastReportedError = "";
+
+    function getToastProfile() {
+        if (ToastProfile) return ToastProfile;
+        const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
+        if (toast && toast.textContent && toast.textContent.trim()) {
+            ToastProfile = toast.textContent.trim();
+        }
+        return ToastProfile;
+    }
+
+    function getCachedFacebookName() {
+        if (nama_FB_Global && nama_FB_Global !== "Unknown") {
+            return Promise.resolve(nama_FB_Global);
+        }
+        if (!fbNamePromise) {
+            fbNamePromise = getFacebookName()
+                .then((name) => {
+                    nama_FB_Global = name || "Unknown";
+                    if (nama_FB_Global === "Unknown") fbNamePromise = null;
+                    return nama_FB_Global;
+                })
+                .catch(() => {
+                    fbNamePromise = null;
+                    return nama_FB_Global || "Unknown";
+                });
+        }
+        return fbNamePromise;
+    }
+
+    async function ensureMonitorIdentity(maxWaitMs = 4500) {
+        const namePromise = getCachedFacebookName();
+        const deadline = Date.now() + maxWaitMs;
+        while (!getToastProfile() && Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 250));
+        }
+        const accName = await namePromise;
+        return {
+            profile: getToastProfile(),
+            accountName: accName || "Unknown"
+        };
+    }
+
     function kirimDataKeLokal(payloadObj) {
         try {
-            GM_xmlhttpRequest({
-                method: "POST",
-                url: "http://localhost:3001/api/data",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                data: JSON.stringify(payloadObj),
-                timeout: 3000,
+            if (!payloadObj || !payloadObj.type || !payloadObj.account) return;
 
-                onload: function (response) {
-                    console.log("[kirimDataKeLokal] Status:", response.status, "Respon:", response.responseText);
+            // Pastikan profile terisi jika elemen toast sudah muncul di DOM
+            if (!payloadObj.profile) {
+                payloadObj.profile = getToastProfile();
+            }
+
+            // Pastikan pasar selalu ada agar server.js dapat membuat activity card
+            if (!payloadObj.pasar) {
+                payloadObj.pasar = (typeof pasar !== 'undefined' && pasar) ? pasar : "HK";
+            }
+
+            const serialized = JSON.stringify(payloadObj);
+
+            const sendToEndpoint = (targetUrl, allowFallback) => {
+                GM_xmlhttpRequest({
+                    method: "POST",
+                    url: targetUrl,
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    data: serialized,
+                    timeout: 3000,
+
+                    onload: function (response) {
+                        if (response.status >= 200 && response.status < 300) {
+                            console.log(`[LiveMonitor] Terkirim ke ${targetUrl} | Status:`, response.status, "Respon:", response.responseText);
+                        } else if (allowFallback) {
+                            sendToEndpoint(LIVE_MONITOR_REMOTE_URL, false);
+                        }
+                    },
+                    onerror: function (err) {
+                        if (allowFallback) {
+                            sendToEndpoint(LIVE_MONITOR_REMOTE_URL, false);
+                        } else {
+                            console.log(`[LiveMonitor] Error koneksi (${targetUrl}):`, err);
+                        }
+                    },
+                    ontimeout: function () {
+                        if (allowFallback) {
+                            sendToEndpoint(LIVE_MONITOR_REMOTE_URL, false);
+                        }
+                    },
+                    onabort: function () { }
+                });
+            };
+
+            // Utamakan localhost:3000 (di-tunnel ke 103.250.10.250:3000), fallback langsung ke 103.250.10.250:3000 jika lokal tidak aktif
+            sendToEndpoint(LIVE_MONITOR_LOCAL_URL, true);
+        } catch (e) { }
+    }
+
+    // Laporkan user yang TIDAK DAPAT KOMENTAR agar langsung ditandai MERAH di Live Monitor
+    async function laporErrorKeMonitor(alasanMasalah) {
+        try {
+            const pesan = (alasanMasalah || "Tidak dapat komentar").toString().trim();
+            if (lastReportedError === pesan) return;
+            lastReportedError = pesan;
+
+            const { profile, accountName } = await ensureMonitorIdentity(3000);
+            if (!profile) {
+                console.warn("[LiveMonitor] Profile (.chrome-toast-profile) belum ditemukan, laporan Error dilewati:", pesan);
+                return;
+            }
+
+            console.warn(`🚨 [LiveMonitor] Menandai MERAH user "${accountName}" (${SCRIPT_NAME} | ${profile}): ${pesan}`);
+            kirimDataKeLokal({
+                "type": "Error",
+                "profile": profile,
+                "account": {
+                    [SCRIPT_NAME]: accountName
                 },
-                onerror: function (err) {
-                    console.log("[kirimDataKeLokal] Error koneksi:", err);
-                },
-                ontimeout: function () {
-                },
-                onabort: function () {
-                }
+                "masalah": pesan
             });
         } catch (e) {
+            console.error("[LiveMonitor] Gagal mengirim laporan Error:", e);
         }
+    }
+
+    // Deteksi kendala akun di halaman Facebook (Login/Checkpoint/18+/Blokir Komentar)
+    function cekKendalaHalamanFB() {
+        try {
+            const href = (window.location.href || "").toLowerCase();
+            if (href.includes("/checkpoint") || href.includes("/login") || href.includes("login.php")) {
+                laporErrorKeMonitor("👉 Akun Logout / Checkpoint, tidak dapat komentar");
+                return true;
+            }
+
+            if (document.querySelector("[aria-label='Pelajari selengkapnya']")) {
+                laporErrorKeMonitor("👉 Batasan Usia 18+ / Akun dibatasi, tidak dapat komentar");
+                return true;
+            }
+
+            const bodyText = (document.body && document.body.innerText) ? document.body.innerText.toLowerCase() : "";
+            if (!bodyText) return false;
+
+            if (
+                bodyText.includes("anda tidak dapat mengomentari") ||
+                bodyText.includes("you can't comment") ||
+                bodyText.includes("diblokir sementara") ||
+                bodyText.includes("temporarily blocked") ||
+                bodyText.includes("fitur ini tidak tersedia untuk anda")
+            ) {
+                laporErrorKeMonitor("🚫 Akun diblokir / dibatasi tidak dapat komentar");
+                return true;
+            }
+
+            if (
+                bodyText.includes("ajukan banding") ||
+                bodyText.includes("akun anda telah ditangguhkan") ||
+                bodyText.includes("account has been suspended") ||
+                bodyText.includes("account has been disabled")
+            ) {
+                laporErrorKeMonitor("👉 Apes. Ajukan Banding / Akun Ditangguhkan");
+                return true;
+            }
+        } catch (e) { }
+        return false;
     }
 
     // 1. Ambil Data Admin (Sama seperti Core.js: dengan sistem caching versi localStorage)
@@ -1447,7 +1596,12 @@ window.initBabonLogic = function (namagroup19, Comment19) {
             for (let line of lines) {
                 if (line.trim() !== "") {
                     try {
-                        results.push(JSON.parse(line));
+                        const parsedLine = JSON.parse(line);
+                        if (parsedLine && parsedLine.error && (parsedLine.error === 1357001 || parsedLine.error === 1357004 || parsedLine.error === 1357006)) {
+                            const errSummary = parsedLine.errorSummary || parsedLine.errorDescription || `Error ${parsedLine.error}`;
+                            laporErrorKeMonitor(`❌ Sesi Facebook bermasalah (Error ${parsedLine.error}: ${errSummary})`);
+                        }
+                        results.push(parsedLine);
                     } catch (err) {
                         console.warn("[Bot] Abaikan baris invalid JSON:", line.substring(0, 50) + "...");
                     }
@@ -1477,12 +1631,22 @@ window.initBabonLogic = function (namagroup19, Comment19) {
         }
         if (!feedbackId || !customCommentText) {
             console.error("[Bot] Parameter feedbackId atau commentText kosong!", { feedbackId, customCommentText });
+            if (feedbackId && !customCommentText) {
+                updateKomentarUI("", "red");
+                laporErrorKeMonitor(`❌ Tidak dapat komentar: Teks komentar grup "${bot_GlobalGroupName || customGroupId || '-'}" tidak ditemukan`);
+            }
             return null;
         }
 
         // Pastikan token sesi (fb_dtsg, jazoest, lsd, __user, __rev, __hs) selalu terisi meskipun tab ini belum sempat auto-scroll
         if (!fb_dtsg || !jazoest || !lsd || !__user || !av) {
             autoExtractTokens();
+        }
+        if (!fb_dtsg || !__user) {
+            console.error("[Bot] ❌ Token sesi (fb_dtsg / __user) kosong! Akun kemungkinan logout/checkpoint.");
+            updateKomentarUI("", "red");
+            laporErrorKeMonitor(`❌ Tidak dapat komentar: Token sesi/Login Facebook hilang (${bot_GlobalGroupName || customGroupId || '-'})`);
+            return null;
         }
 
         // Cek anti-double PER AKUN FB (hanya pada attempt pertama; retry dari tab yang sama tetap diizinkan karena pemilik lock sama)
@@ -1591,16 +1755,46 @@ window.initBabonLogic = function (namagroup19, Comment19) {
             });
             const text = await response.text();
             const cleanResp = text.replace(/^for\s*\(;;\);/, "").trim();
-            let hasError = false;
-            let errorCode = null;
+            let hasError = !response.ok;
+            let errorCode = !response.ok ? response.status : null;
+            let errorDetail = !response.ok ? `HTTP ${response.status}` : "";
+
             try {
-                const firstLine = cleanResp.split(/\r?\n/)[0];
-                const parsedResp = JSON.parse(firstLine);
-                if (parsedResp && parsedResp.errors && parsedResp.errors.length > 0) {
-                    hasError = true;
-                    const err0 = parsedResp.errors[0];
-                    errorCode = err0.code;
-                    console.error(`[Bot] ❌ Facebook menolak komentar (code ${err0.code}): ${err0.summary || err0.message}`, parsedResp.errors);
+                const respLines = cleanResp.split(/\r?\n/).filter(l => l.trim() !== "");
+                for (const line of respLines) {
+                    let parsedResp = null;
+                    try {
+                        parsedResp = JSON.parse(line);
+                    } catch (_) {
+                        continue;
+                    }
+
+                    // 1. Format GraphQL standard: { errors: [...] }
+                    if (parsedResp && parsedResp.errors && parsedResp.errors.length > 0) {
+                        hasError = true;
+                        const err0 = parsedResp.errors[0];
+                        errorCode = err0.code || errorCode;
+                        errorDetail = err0.summary || err0.description || err0.message || `Code ${err0.code}`;
+                        console.error(`[Bot] ❌ Facebook menolak komentar (code ${err0.code}): ${errorDetail}`, parsedResp.errors);
+                        break;
+                    }
+
+                    // 2. Format Legacy Error Facebook: { error: 1357001, errorSummary: "...", errorDescription: "..." }
+                    if (parsedResp && parsedResp.error) {
+                        hasError = true;
+                        errorCode = parsedResp.error;
+                        errorDetail = parsedResp.errorSummary || parsedResp.errorDescription || `Error ${parsedResp.error}`;
+                        console.error(`[Bot] ❌ Facebook menolak komentar (error ${parsedResp.error}): ${errorDetail}`, parsedResp);
+                        break;
+                    }
+
+                    // 3. Mutasi comment_create secara eksplisit bernilai null (gagal/diblokir diam-diam)
+                    if (parsedResp && parsedResp.data && Object.prototype.hasOwnProperty.call(parsedResp.data, "comment_create") && !parsedResp.data.comment_create) {
+                        hasError = true;
+                        errorDetail = "comment_create ditolak/kosong oleh Facebook";
+                        console.error(`[Bot] ❌ Facebook mengembalikan comment_create null:`, parsedResp);
+                        break;
+                    }
                 }
             } catch (parseErr) { }
 
@@ -1632,12 +1826,30 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                 }
 
                 updateKomentarUI("", "red");
+                const namaGrupErr = bot_GlobalGroupName || finalGroupId || "-";
+                const kodeStr = errorCode ? `Code ${errorCode}: ` : "";
+                laporErrorKeMonitor(`❌ Tidak dapat komentar (${kodeStr}${errorDetail || "Ditolak Facebook"}) [${namaGrupErr}]`);
                 return text;
             }
 
             console.log("%c[Bot] ✅ Respon Komentar Diterima!", "color: #00ff00;");
             console.log("Berhasil", "#00ff04ff");
             updateKomentarUI("", "#00ff00"); // Ubah indikator jadi Hijau!
+
+            // Laporkan status berhasil komentar (Diposting) ke Live Monitor & Activity Log
+            ensureMonitorIdentity(1500).then(({ profile, accountName }) => {
+                if (profile && accountName) {
+                    kirimDataKeLokal({
+                        "type": "Online",
+                        "profile": profile,
+                        "account": {
+                            [SCRIPT_NAME]: accountName
+                        },
+                        "group": bot_GlobalGroupName || finalGroupId || "Unknown",
+                        "models": "Diposting"
+                    });
+                }
+            });
 
             // Catat di storage (GM_setValue) agar grup ini tidak dikomentari lagi selama 1 menit!
             if (bot_GlobalGroupName) {
@@ -1651,6 +1863,7 @@ window.initBabonLogic = function (namagroup19, Comment19) {
         } catch (e) {
             console.error("[Bot] Gagal komentar:", e);
             updateKomentarUI("", "red"); // Ubah indikator jadi Merah!
+            laporErrorKeMonitor(`❌ Gagal kirim komentar (${e && e.message ? e.message : "Network Error"}) [${bot_GlobalGroupName || finalGroupId || "-"}]`);
             return null;
         }
 
@@ -1760,24 +1973,41 @@ window.initBabonLogic = function (namagroup19, Comment19) {
     const mineFacebookPosts = async function () {
         let isLooping = true;
 
-
-        let nama_FB_Global = await getFacebookName();
-        let ToastProfile = "";
-        for (let i = 0; i < 15; i++) { // Tunggu maksimal 3 detik (15 x 200ms)
-            const toast = document.querySelector(".chrome-toast-profile");
-            if (toast && toast.textContent) {
-                ToastProfile = toast.textContent.trim();
-                break;
-            }
-            await new Promise(r => setTimeout(r, 300));
+        const { profile: initialProfile, accountName: initialAccName } = await ensureMonitorIdentity(4500);
+        if (initialProfile) {
+            kirimDataKeLokal({
+                "type": "Online",
+                "profile": initialProfile,
+                "account": {
+                    [SCRIPT_NAME]: initialAccName
+                }
+            });
         }
-        kirimDataKeLokal({
-            "type": "Online",
-            "profile": ToastProfile,
-            "account": {
-                [Comment19]: nama_FB_Global
+
+        // Cek apakah halaman Facebook sedang terkena Login / Checkpoint / 18+ / Blokir Komentar
+        cekKendalaHalamanFB();
+
+        // Kirim status Standby ke Live Monitor & Activity Log begitu nama grup & profile siap
+        let standbyInterval = setInterval(() => {
+            if (KomentDone) {
+                clearInterval(standbyInterval);
+                return;
             }
-        });
+            const curProfile = getToastProfile();
+            const curName = nama_FB_Global;
+            if (curProfile && curName && curName !== "Unknown" && bot_GlobalGroupName) {
+                kirimDataKeLokal({
+                    "type": "Online",
+                    "profile": curProfile,
+                    "account": {
+                        [SCRIPT_NAME]: curName
+                    },
+                    "group": bot_GlobalGroupName,
+                    "models": "Standby"
+                });
+                clearInterval(standbyInterval);
+            }
+        }, 3000);
 
         let waitPayloadTicks = 0;
         while (isLooping && !KomentDone) {
@@ -1789,6 +2019,9 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                 // Retry pancingan auto-scroll setiap 3 detik agar tab background/lambat tidak macet
                 if (waitPayloadTicks % 3 === 0) {
                     window.scrollBy({ top: 1500, behavior: 'smooth' });
+                }
+                if (waitPayloadTicks === 5 || waitPayloadTicks % 15 === 0) {
+                    cekKendalaHalamanFB();
                 }
                 await new Promise(resolve => setTimeout(resolve, 1000)); // Tunggu 1 detik sebelum cek lagi
                 continue;
