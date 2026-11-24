@@ -13,6 +13,11 @@ window.initBabonLogic = function (namagroup19, Comment19) {
     let isProcessingSocketMatch = false;
     let cachedGroupStatus = {}; // Cache RAM untuk BOT_GROUP_STATUS (0 ms di jalur kritis)
     let cachedNormLocalGroup = "";
+    let botRole = "SCOUT"; // Default SCOUT jika server 8081 belum memberi peran (jaminan tidak pernah lumpuh)
+    let botScoutSlot = 0;
+    let botTotalScouts = 1;
+    let registeredGroupKey = "";
+    let scoutUnhealthySent = false;
     const CEK_KONEKSI_SETIAP = 3000; // Patroli setiap 3 detik (3000 ms)
 
     // --- PENGUNCI ANTI-DOUBLE 3-LAPIS PER AKUN FACEBOOK (< 0.1 ms) ---
@@ -75,6 +80,39 @@ window.initBabonLogic = function (namagroup19, Comment19) {
         return true;
     }
 
+    function getRoleGroupKey() {
+        if (!groupID) {
+            const gMatch = window.location.href.match(/\/groups\/(\d+)/);
+            if (gMatch && gMatch[1]) groupID = gMatch[1];
+        }
+        if (groupID) return String(groupID).trim();
+        if (cachedNormLocalGroup) return cachedNormLocalGroup;
+        if (bot_GlobalGroupName) return normalizeToBasicLatin(bot_GlobalGroupName).toLowerCase().trim();
+        if (namagroup19) return normalizeToBasicLatin(namagroup19).toLowerCase().trim();
+        return "DEFAULT";
+    }
+
+    function registerRoleToSocket(force = false) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        const gKey = getRoleGroupKey();
+        if (!force && registeredGroupKey === gKey) return;
+        registeredGroupKey = gKey;
+        scoutUnhealthySent = false;
+        socket.send(`REGISTER_ROLE|${gKey}|${getCurrentAccountId()}`);
+    }
+
+    function applyBotRoleUI() {
+        if (!uiDashboard) initDashboard();
+        if (!uiGeneralDot) return;
+        if (botRole === "SNIPER") {
+            uiGeneralDot.textContent = "SNIPER";
+            uiGeneralDot.style.backgroundColor = "#00aaff";
+            uiGeneralDot.style.boxShadow = "0 0 5px #00aaff";
+        } else {
+            uiGeneralDot.textContent = `SCOUT${botScoutSlot + 1}`;
+        }
+    }
+
     function hubungkanSocket() {
         // CEGAH SPAM KONEKSI:
         // Jika socket masih ada dan statusnya sedang menyambung (CONNECTING)
@@ -89,15 +127,45 @@ window.initBabonLogic = function (namagroup19, Comment19) {
         socket.onopen = function () {
             console.log("🟢 [Socket] Terhubung ke Server Node.js (Port 8081)");
             updateSocketUI(true);
+            registerRoleToSocket(true);
         };
 
         // ==========================================
         // BAGIAN PENERIMA (RECEIVER) - ULTRA LOW LATENCY & ANTI-DOUBLE
         // ==========================================
         socket.onmessage = async function (event) {
-            if (KomentDone || isProcessingSocketMatch) return;
             const rawMessage = event.data;
             if (!rawMessage || typeof rawMessage !== 'string') return;
+
+            // --- HANDLER PENUGASAN ROLE OTOMATIS (SCOUT vs SNIPER) ---
+            if (rawMessage.startsWith("ROLE:")) {
+                const prevRole = botRole;
+                if (rawMessage.startsWith("ROLE:SNIPER")) {
+                    botRole = "SNIPER";
+                    const mTot = rawMessage.match(/TOTAL_SCOUTS:(\d+)/);
+                    botTotalScouts = mTot ? parseInt(mTot[1], 10) : 4;
+                    applyBotRoleUI();
+                    if (prevRole !== "SNIPER") {
+                        console.log(`%c🎯 [Role] Mode SNIPER AKTIF (0 polling feed, koneksi QUIC tetap hangat, siaga tembak 3ms via WS-8081)`, "color:#00aaff; font-weight:bold;");
+                    }
+                } else if (rawMessage.startsWith("ROLE:SCOUT")) {
+                    botRole = "SCOUT";
+                    const mSlot = rawMessage.match(/SLOT:(\d+)/);
+                    const mTot = rawMessage.match(/TOTAL:(\d+)/);
+                    botScoutSlot = mSlot ? parseInt(mSlot[1], 10) : 0;
+                    botTotalScouts = mTot ? parseInt(mTot[1], 10) : 1;
+                    applyBotRoleUI();
+                    if (prevRole !== "SCOUT") {
+                        console.log(`%c🛰️ [Role] Promosi ke Mode SCOUT #${botScoutSlot + 1}/${botTotalScouts}! Memulai radar polling feed...`, "color:#00ff00; font-weight:bold;");
+                        if (!RAW_PAYLOAD_DARI_FACEBOOK && typeof triggerAutoScroll === "function") {
+                            triggerAutoScroll();
+                        }
+                    }
+                }
+                return;
+            }
+
+            if (KomentDone || isProcessingSocketMatch) return;
 
             let incomingGroup = "";
             let incomingFeedbackId = "";
@@ -199,6 +267,12 @@ window.initBabonLogic = function (namagroup19, Comment19) {
 
         socket.onclose = function () {
             updateSocketUI(false);
+            registeredGroupKey = "";
+            // Fallback keamanan: jika server 8081 offline, seluruh tab otomatis boleh polling sendiri (SCOUT)
+            botRole = "SCOUT";
+            botScoutSlot = 0;
+            botTotalScouts = 1;
+            applyBotRoleUI();
         };
 
         socket.onerror = function (error) {
@@ -1344,6 +1418,7 @@ window.initBabonLogic = function (namagroup19, Comment19) {
     // Fitur Auto-Scroll Pancingan
     // Menggulir ke bawah secara otomatis untuk memaksa Facebook menembakkan GraphQL Feed
     function triggerAutoScroll() {
+        if (botRole === "SNIPER") return; // Mode SNIPER tidak perlu memancing feed scroll berat
         if (!RAW_PAYLOAD_DARI_FACEBOOK) {
             console.log("%c[Bot] 🎣 Memancing Payload GraphQL dengan Auto-Scroll...", "color: #00ff00; font-weight: bold;");
 
@@ -2183,7 +2258,36 @@ window.initBabonLogic = function (namagroup19, Comment19) {
         }, 3000);
 
         let waitPayloadTicks = 0;
+        let lastSniperKeepAlive = Date.now();
         while (isLooping && !KomentDone) {
+            // Pastikan pendaftaran role ke WS 8081 selalu sinkron dengan groupKey terbaru
+            registerRoleToSocket(false);
+
+            // ==========================================================
+            // MODE SNIPER: 0 POLLING FEED, HEMAT >85% CPU & BANDWIDTH!
+            // Hanya menjaga token + koneksi QUIC/HTTP2 tetap hangat (0-RTT)
+            // dan langsung menembak komentar dalam ~3ms saat sinyal WS masuk.
+            // ==========================================================
+            if (botRole === "SNIPER") {
+                applyBotRoleUI();
+                if (!fb_dtsg || !jazoest || !lsd || !__user || !av) {
+                    autoExtractTokens();
+                }
+                // Keep-alive super ringan (HEAD /favicon.ico 0 byte body) tiap 25 detik agar pipa QUIC/HTTP2 tetap hangat
+                if (Date.now() - lastSniperKeepAlive >= 25000) {
+                    lastSniperKeepAlive = Date.now();
+                    originalFetch.call(window, "https://www.facebook.com/favicon.ico", {
+                        method: "HEAD",
+                        credentials: "include"
+                    }).catch(() => { });
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+                continue;
+            }
+
+            // ==========================================================
+            // MODE SCOUT: POLLING FEED TERKOORDINASI (STAGGERED)
+            // ==========================================================
             // CEK KEAMANAN: Jangan eksekusi jika payload belum tertangkap!
             if (!doc_id || Object.keys(baseVariables).length === 0) {
                 waitPayloadTicks++;
@@ -2195,6 +2299,11 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                 }
                 if (waitPayloadTicks === 5 || waitPayloadTicks % 15 === 0) {
                     cekKendalaHalamanFB();
+                }
+                // Failover otomatis: jika Scout gagal menangkap payload > 10 detik, minta server promosikan Sniper sehat!
+                if (waitPayloadTicks >= 10 && !scoutUnhealthySent && socket && socket.readyState === WebSocket.OPEN) {
+                    scoutUnhealthySent = true;
+                    socket.send(`SCOUT_UNHEALTHY|${registeredGroupKey}|${getCurrentAccountId()}`);
                 }
                 await new Promise(resolve => setTimeout(resolve, 1000)); // Tunggu 1 detik sebelum cek lagi
                 continue;
@@ -2241,8 +2350,9 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                     return semuaPostingan; // Berhasil! Return array dan loop otomatis berhenti
                 } else {
                     updateStatusDot("#24fc03");
-                    // Staggered polling 250-350 ms agar 36 jendela menyebar alami & mendeteksi post lebih cepat tanpa rate-limit per akun
-                    const nextDelay = 250 + Math.floor(Math.random() * 100);
+                    // Staggering adaptif berdasarkan slot Scout (4 Scout bergiliran ~280ms = deteksi grup tiap ~70ms!)
+                    const slotJitter = (botTotalScouts > 1) ? ((botScoutSlot * 65) % 120) : Math.floor(Math.random() * 80);
+                    const nextDelay = 240 + slotJitter;
                     await new Promise(resolve => setTimeout(resolve, nextDelay));
                     continue; // Ulangi loop
                 }
