@@ -2045,7 +2045,7 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                 // AUTO-RETRY ULTRA-CEPAT KHUSUS CODE 1446013 (replikasi shard) TANPA MEMBUKA KomentDone (anti-double 100%)
                 // Catatan: saat respon 1446013 kembali, round-trip jaringan sudah memakan ~300-500ms sehingga shard FB hampir siap
                 if (errorCode === 1446013 && attempt < 4) {
-                    const retryDelays = [50, 150, 350, 700];
+                    const retryDelays = [10, 150, 350, 700];
                     const retryDelay = retryDelays[attempt] || 700;
                     console.warn(`🔄 [Bot Auto-Retry] Code 1446013 terdeteksi (percobaan #${attempt + 1}/4). Menunggu ${retryDelay}ms lalu tembak ulang...`);
                     await new Promise(r => setTimeout(r, retryDelay));
