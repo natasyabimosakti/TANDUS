@@ -249,6 +249,15 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                         }
                     }
 
+                    // Pastikan token sesi (fb_dtsg & __user) siap untuk tab late-joiner yang baru saja dibuka (0 ms jika sudah hangat di RAM)
+                    if (!fb_dtsg || !__user) {
+                        try { autoExtractTokens(); } catch (e) { }
+                        for (let waitTok = 0; waitTok < 80 && (!fb_dtsg || !__user) && !KomentDone; waitTok++) {
+                            await new Promise(r => setTimeout(r, 50));
+                            try { autoExtractTokens(); } catch (e) { }
+                        }
+                    }
+
                     if (KomentDone) return;
 
                     // TEMBAK KOMENTAR DULU SEBELUM UPDATE UI ATAU CONSOLE.LOG!
@@ -2045,7 +2054,7 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                 // AUTO-RETRY ULTRA-CEPAT KHUSUS CODE 1446013 (replikasi shard) TANPA MEMBUKA KomentDone (anti-double 100%)
                 // Catatan: saat respon 1446013 kembali, round-trip jaringan sudah memakan ~300-500ms sehingga shard FB hampir siap
                 if (errorCode === 1446013 && attempt < 4) {
-                    const retryDelays = [10, 150, 350, 700];
+                    const retryDelays = [50, 150, 350, 700];
                     const retryDelay = retryDelays[attempt] || 700;
                     console.warn(`🔄 [Bot Auto-Retry] Code 1446013 terdeteksi (percobaan #${attempt + 1}/4). Menunggu ${retryDelay}ms lalu tembak ulang...`);
                     await new Promise(r => setTimeout(r, retryDelay));
@@ -2350,9 +2359,19 @@ window.initBabonLogic = function (namagroup19, Comment19) {
                     return semuaPostingan; // Berhasil! Return array dan loop otomatis berhenti
                 } else {
                     updateStatusDot("#24fc03");
-                    // Staggering adaptif berdasarkan slot Scout (4 Scout bergiliran ~280ms = deteksi grup tiap ~70ms!)
-                    const slotJitter = (botTotalScouts > 1) ? ((botScoutSlot * 65) % 120) : Math.floor(Math.random() * 80);
-                    const nextDelay = 240 + slotJitter;
+                    // Staggering adaptif untuk mode ALL-SCOUT:
+                    // - <= 4 tab : 240-360 ms (tetap super rapat)
+                    // - > 4 tab  : jeda per tab melebar proporsional (maks ~1500 ms) tersebar rata per slot
+                    //   sehingga deteksi gabungan grup tetap ~35-60 ms namun CPU & jaringan tiap Chrome tetap adem!
+                    let nextDelay;
+                    if (botTotalScouts <= 4) {
+                        const slotJitter = (botTotalScouts > 1) ? ((botScoutSlot * 65) % 120) : Math.floor(Math.random() * 80);
+                        nextDelay = 240 + slotJitter;
+                    } else {
+                        const baseDelay = Math.min(1400, 260 + botTotalScouts * 28);
+                        const phaseSpread = Math.floor(((botScoutSlot % botTotalScouts) / botTotalScouts) * 260);
+                        nextDelay = baseDelay + phaseSpread;
+                    }
                     await new Promise(resolve => setTimeout(resolve, nextDelay));
                     continue; // Ulangi loop
                 }
