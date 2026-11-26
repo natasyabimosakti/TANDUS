@@ -306,13 +306,10 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     console.log("diposting Sudah Berhasil _____________REALTIME_SUCCESS_________");
 
                     Blockafter();
-                    // Pastikan laporan "Diposting" selesai terkirim ke /activity sebelum pindah ke about:blank
-                    Promise.race([reportDone, new Promise(r => setTimeout(r, 2500))]).then(() => {
-                        setTimeout(() => {
-                            if (masterObserver) masterObserver.disconnect();
-                            location.href = "about:blank";
-                        }, 1500);
-                    });
+                    setTimeout(() => {
+                        if (masterObserver) masterObserver.disconnect();
+                        location.href = "about:blank";
+                    }, 30000);
                 }
             }
         });
@@ -1146,7 +1143,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
             return "";
         };
 
-        return new Promise(async (resolve) => {
+        return new Promise((resolve) => {
             if (window.top !== window.self || !targetId) {
                 resolve("Unknown");
                 return;
@@ -1172,28 +1169,11 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 }
             } catch (e) { }
 
-            // 3. Fallback: ambil dari m.facebook.com/profile.php (same-origin, UA mobile asli browser — TIDAK pernah pakai www / Windows 10)
-            const mobileOrigin = location.hostname.includes("facebook.com") ? location.origin : "https://m.facebook.com";
-            const url = `${mobileOrigin}/profile.php?id=${targetId}`;
-            console.log(`[Script] 🔍 Mengambil nama akun via Mobile (${mobileOrigin}) untuk ID: ${targetId}...`);
-
-            try {
-                const res = await fetch(url, {
-                    method: "GET",
-                    credentials: "include"
-                });
-                if (res.ok) {
-                    const html = await res.text();
-                    const userName = extractNameFromProfileHtml(html);
-                    if (isValidFbName(userName)) {
-                        try { localStorage.setItem(cacheKey, userName); } catch (e) { }
-                        resolve(userName);
-                        return;
-                    }
-                }
-            } catch (e) {
-                console.warn("[Script] Fetch mobile profile gagal, fallback GM_xmlhttpRequest:", e);
-            }
+            // 3. Fallback persis seperti TANDUS: ambil dari www.facebook.com/profile.php?id=<c_user>
+            //    (karena m.facebook.com WebLite tidak merender nama di HTML mentah),
+            //    lalu cache di localStorage per c_user agar HANYA 1x request per akun!
+            const url = `https://www.facebook.com/profile.php?id=${targetId}`;
+            console.log(`[Script] 🔍 Mengambil nama akun untuk ID: ${targetId} (1x lalu dicache)...`);
 
             GM_xmlhttpRequest({
                 method: "GET",
@@ -1201,12 +1181,15 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 withCredentials: true,
                 anonymous: false,
                 headers: {
-                    "User-Agent": navigator.userAgent,
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Sec-Fetch-Site": "same-origin",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Upgrade-Insecure-Requests": "1"
                 },
                 onload: function (response) {
                     if (response.status !== 200) {
-                        console.warn(`Gagal mengakses profil mobile. Status: ${response.status}`);
+                        console.warn(`Gagal mengakses profil. Status: ${response.status}`);
                         resolve("Unknown");
                         return;
                     }
@@ -1215,7 +1198,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                         try { localStorage.setItem(cacheKey, userName); } catch (e) { }
                         resolve(userName);
                     } else {
-                        console.warn("Gagal mendapatkan nama dari halaman mobile.");
+                        console.warn("Gagal mendapatkan nama.");
                         resolve("Unknown");
                     }
                 },
