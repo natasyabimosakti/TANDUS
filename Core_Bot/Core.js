@@ -307,7 +307,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     setTimeout(() => {
                         if (masterObserver) masterObserver.disconnect();
                         location.href = "about:blank";
-                    }, 30000);
+                    }, 0);
                 }
             }
         });
@@ -830,7 +830,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
 
             setTimeout(() => {
                 location.href = "about:blank";
-            }, 30000);
+            }, 0);
         });
 
     }
@@ -1065,19 +1065,24 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
     function getFacebookName() {
         var targetId = "";
 
-        const html = document.documentElement.innerHTML;
+        // 1. Prioritas utama: ambil c_user langsung dari cookie (paling akurat & instan di m.facebook.com)
+        const matchCookie = document.cookie.match(/(?:^|;\s*)c_user=(\d+)/);
+        if (matchCookie && matchCookie[1]) {
+            targetId = matchCookie[1];
+        } else {
+            // 2. Fallback: cari di HTML halaman
+            const html = document.documentElement.innerHTML;
+            const matchHtml = html.match(/"(?:userid|USER_ID|ACCOUNT_ID|actorID)"\s*:\s*"?(\d+)"?/i);
+            if (matchHtml && matchHtml[1]) {
+                targetId = matchHtml[1];
+            }
+        }
 
-        // Regex untuk mencari userid
-        const regexUserId = /"userid":(\d+)/;
-        const match = html.match(regexUserId);
-
-        if (match && match[1]) {
-            const userId = match[1];
-            console.log(`%c[Otomatis] Berhasil menemukan User ID: ${userId}`, 'color: #00ff00; font-weight: bold; font-size: 16px;');
-            targetId = userId
+        if (targetId) {
+            console.log(`%c[Otomatis] Berhasil menemukan User ID: ${targetId}`, 'color: #00ff00; font-weight: bold; font-size: 16px;');
         }
         return new Promise((resolve, reject) => {
-            if (window.top !== window.self) {
+            if (window.top !== window.self || !targetId) {
                 resolve("Unknown");
                 return;
             }
@@ -1147,33 +1152,70 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         });
     }
 
+    const LIVE_MONITOR_URLS = [
+        "http://localhost:3000/api/data",
+        "http://localhost:3001/api/data",
+        "http://103.250.10.250:3000/api/data"
+    ];
+
+    function getToastProfile() {
+        if (ToastProfile) return ToastProfile;
+        const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
+        if (toast && toast.textContent && toast.textContent.trim()) {
+            ToastProfile = toast.textContent.trim();
+        }
+        return ToastProfile;
+    }
+
     function kirimDataKeLokal(payloadObj) {
         try {
+            if (!payloadObj || !payloadObj.type || !payloadObj.account) return;
+            if (!payloadObj.profile) {
+                payloadObj.profile = getToastProfile();
+            }
             // Pastikan pasar selalu ada agar server.js tidak mengabaikan pembuatan activity card
             if (!payloadObj.pasar) {
                 payloadObj.pasar = typeof pasar !== 'undefined' && pasar ? pasar : "HK";
             }
 
-            GM_xmlhttpRequest({
-                method: "POST",
-                url: "http://localhost:3001/api/data",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                data: JSON.stringify(payloadObj),
-                timeout: 3000,
+            const serialized = JSON.stringify(payloadObj);
 
-                onload: function (response) {
-                    console.log("[kirimDataKeLokal] Status:", response.status, "Respon:", response.responseText);
-                },
-                onerror: function (err) {
-                    console.log("[kirimDataKeLokal] Error koneksi:", err);
-                },
-                ontimeout: function () {
-                },
-                onabort: function () {
-                }
-            });
+            const sendToIndex = (idx) => {
+                if (idx >= LIVE_MONITOR_URLS.length) return;
+                const targetUrl = LIVE_MONITOR_URLS[idx];
+                GM_xmlhttpRequest({
+                    method: "POST",
+                    url: targetUrl,
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    data: serialized,
+                    timeout: 3000,
+
+                    onload: function (response) {
+                        if (response.status >= 200 && response.status < 300) {
+                            console.log(`[kirimDataKeLokal] Terkirim ke ${targetUrl} | Status:`, response.status, "Respon:", response.responseText);
+                        } else {
+                            sendToIndex(idx + 1);
+                        }
+                    },
+                    onerror: function (err) {
+                        if (idx + 1 < LIVE_MONITOR_URLS.length) {
+                            sendToIndex(idx + 1);
+                        } else {
+                            console.log(`[kirimDataKeLokal] Error koneksi (${targetUrl}):`, err);
+                        }
+                    },
+                    ontimeout: function () {
+                        sendToIndex(idx + 1);
+                    },
+                    onabort: function () {
+                    }
+                });
+            };
+
+            // Urutan otomatis: localhost:3000 (PC 1) -> localhost:3001 (PC 2) -> remote VPS :3000
+            sendToIndex(0);
         } catch (e) {
         }
     }
@@ -1495,6 +1537,31 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         }, 10000);
         nama_FB_Global = await getFacebookName();
         ToastProfile = "";
+
+        // Kirim laporan Online awal secepatnya (termasuk di homepage m.facebook.com saat ganti sesi via Kiwi Extension)
+        // tanpa menunggu grouptToPost, agar http://103.250.10.250:3000/ langsung update nama akun!
+        (async () => {
+            const deadline = Date.now() + 8000;
+            while (Date.now() < deadline) {
+                const curProfile = getToastProfile();
+                if (!nama_FB_Global || nama_FB_Global === "Unknown") {
+                    nama_FB_Global = await getFacebookName();
+                }
+                if (curProfile && nama_FB_Global && nama_FB_Global !== "Unknown") {
+                    console.log(`✅ Online Awal Terkirim: Profile=${curProfile} | Akun=${nama_FB_Global}`);
+                    kirimDataKeLokal({
+                        "type": "Online",
+                        "profile": curProfile,
+                        "account": {
+                            [SCRIPT_NAME]: nama_FB_Global
+                        }
+                    });
+                    break;
+                }
+                await new Promise(r => setTimeout(r, 700));
+            }
+        })();
+
         const wrapper = document.querySelector('[aria-label*="Kirim permintaan pertemanan" i]');
         const actualBtn = wrapper ? wrapper.querySelector('[role="button"]') : null;
 
@@ -1502,13 +1569,11 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
             actualBtn.focus();
             actualBtn.click();
         }
-        var kiriminterval = setInterval(() => {
-            // Selalu coba cari ToastProfile jika masih kosong
-            if (ToastProfile === "") {
-                const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
-                if (toast && toast.textContent) {
-                    ToastProfile = toast.textContent.trim();
-                }
+        var kiriminterval = setInterval(async () => {
+            // Selalu coba cari ToastProfile & nama akun jika masih kosong/Unknown
+            getToastProfile();
+            if (!nama_FB_Global || nama_FB_Global === "Unknown") {
+                nama_FB_Global = await getFacebookName();
             }
 
             if (grouptToPost.length > 0 && ToastProfile !== "" && nama_FB_Global !== "Unknown") {
