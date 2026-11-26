@@ -1620,6 +1620,20 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     });
                     break;
                 }
+                const hasCUser = /(?:^|;\s*)c_user=\d+/.test(document.cookie);
+                const isLoginPage = location.pathname.toLowerCase().includes('/login') ||
+                    !!document.querySelector('input[name="email"], input[name="pass"]');
+                if (curProfile && !hasCUser && isLoginPage) {
+                    console.log(`⚠️ Belum Login Terdeteksi: Profile=${curProfile} | Akun=Unknown`);
+                    kirimDataKeLokal({
+                        "type": "Online",
+                        "profile": curProfile,
+                        "account": {
+                            [SCRIPT_NAME]: "Unknown"
+                        }
+                    });
+                    break;
+                }
                 await new Promise(r => setTimeout(r, 700));
             }
         })();
