@@ -1674,6 +1674,14 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 return;
             }
 
+            const button = Array.from(document.querySelectorAll('div[role="button"][aria-label]'))
+                .find(el => {
+                    const label = el.getAttribute('aria-label')?.toLowerCase() || "";
+                    const isJoin = label.includes('gabung grup') || label.includes('join');
+                    const isDisabled = el.getAttribute('aria-disabled') === 'true';
+                    return isJoin && !label.includes('batalkan') && !isDisabled;
+                });
+
             const keywords = ["permanent", "menangguhkan", "ajukan banding", "pelajari selengkapnya"];
             const elements = document.querySelectorAll('[aria-label]');
             let ditemukan = false;
@@ -1699,6 +1707,16 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 const pesanError = `👉 Apes. Ajukan Banding atau 18+`;
                 sendToTelegram(pesanError);
                 return;
+            }
+
+            if (button && typeof button.click === 'function') {
+                const btnText = (button.textContent || '').toLowerCase();
+                if ((btnText.includes("gabung") || btnText.includes("join")) && !btnText.includes("batalkan")) {
+                    console.log('✅ Tombol Gabung Grup ditemukan, klik sekarang...');
+                    button.click();
+                    clearInterval(interval);
+                    return;
+                }
             }
 
             if (attempts >= 10) {
