@@ -1653,6 +1653,13 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         const interval = setInterval(() => {
             attempts++;
 
+            if (location.href.toLowerCase().includes('/checkpoint')) {
+                clearInterval(interval);
+                const pesanError = `🔒 Checkpoint (${location.pathname})`;
+                sendToTelegram(pesanError);
+                return;
+            }
+
             const keywords = ["permanent", "menangguhkan", "ajukan banding", "pelajari selengkapnya"];
             const elements = document.querySelectorAll('[aria-label]');
             let ditemukan = false;
