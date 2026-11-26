@@ -1153,9 +1153,9 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
     }
 
     const LIVE_MONITOR_URLS = [
-        "http://localhost:3000/api/data",
         "http://localhost:3001/api/data",
-        "http://103.250.10.250:3000/api/data"
+        "http://localhost:3001/api/data",
+        "http://103.250.10.250:3001/api/data"
     ];
 
     function getToastProfile() {
