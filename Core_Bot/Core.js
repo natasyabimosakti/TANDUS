@@ -1562,13 +1562,6 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
             }
         })();
 
-        const wrapper = document.querySelector('[aria-label*="Kirim permintaan pertemanan" i]');
-        const actualBtn = wrapper ? wrapper.querySelector('[role="button"]') : null;
-
-        if (actualBtn) {
-            actualBtn.focus();
-            actualBtn.click();
-        }
         var kiriminterval = setInterval(async () => {
             // Selalu coba cari ToastProfile & nama akun jika masih kosong/Unknown
             getToastProfile();
@@ -1593,77 +1586,41 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 console.log(`⏳ Menunggu syarat Standby... Grup: "${grouptToPost}", Profile: "${ToastProfile}", Akun: "${nama_FB_Global}"`);
             }
         }, 3000);
+
         let attempts = 0;
-
-
         const interval = setInterval(() => {
-
             attempts++;
-            const button = Array.from(document.querySelectorAll('div[role="button"][aria-label]'))
-                .find(el => {
-                    const label = el.getAttribute('aria-label')?.toLowerCase() || "";
-                    const isJoin = label.includes('gabung grup') || label.includes('join');
-                    const isDisabled = el.getAttribute('aria-disabled') === 'true';
-                    return isJoin && !label.includes('batalkan') && !isDisabled;
-                });
 
-
-            const keywords = ["permanent", "menangguhkan", "Ajukan Banding", "Pelajari selengkapnya"];
-
+            const keywords = ["permanent", "menangguhkan", "ajukan banding", "pelajari selengkapnya"];
             const elements = document.querySelectorAll('[aria-label]');
-            let ariaLabelSebelumnya = null;
             let ditemukan = false;
 
             for (let i = 0; i < elements.length; i++) {
-                const currentLabel = elements[i].getAttribute('aria-label').toLowerCase();
-                const isMatch = keywords.some(keyword => currentLabel.includes(keyword));
-                if (isMatch) {
+                const currentLabel = (elements[i].getAttribute('aria-label') || '').toLowerCase();
+                if (keywords.some(kw => currentLabel.includes(kw))) {
                     ditemukan = true;
-                    if (i > 0) {
-                        ariaLabelSebelumnya = elements[i - 1].getAttribute('aria-label');
-                    } else {
-                        ariaLabelSebelumnya = "Cocok di elemen pertama";
-                    }
                     break;
                 }
             }
-            const isAgeRestricted = document.querySelector("[aria-label='Pelajari selengkapnya']")
+            const isAgeRestricted = document.querySelector("[aria-label='Pelajari selengkapnya']");
 
             if (isAgeRestricted) {
                 clearInterval(interval);
                 const pesanError = `Batasan Usia 18+, Facebook ini Tidak dapat di gunakan`;
                 sendToTelegram(pesanError);
-                return; // Stop eksekusi agar tidak lanjut nge-klik tombol
+                return;
             }
 
             if (ditemukan) {
                 clearInterval(interval);
                 const pesanError = `👉 Apes. Ajukan Banding atau 18+`;
                 sendToTelegram(pesanError);
-                return; // Stop eksekusi agar tidak lanjut nge-klik tombol
+                return;
             }
 
-            if (button && typeof button.click === 'function') {
-                if (button.textContent.includes("gabung") && !button.textContent.includes("batalkan")) {
-                    console.log('✅ Tombol ditemukan, klik sekarang...');
-                    button.click();
-                }
-            } else if (attempts >= 10) {
-                console.log('❌ Tombol tidak ditemukan setelah 10 kali percobaan. Berhenti.');
+            if (attempts >= 10) {
                 clearInterval(interval);
             }
-
-
-            const wrapper = document.querySelector('[aria-label*="Kirim permintaan pertemanan" i]');
-            const target = wrapper?.querySelector('[role="button"]');
-
-            if (target) {
-                target.focus();
-
-                const keyOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true };
-                target.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
-                target.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
-            }
-        }, 2000); // Coba setiap 1 detik
+        }, 2000);
     })();
 };
