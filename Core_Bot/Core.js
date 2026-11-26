@@ -288,8 +288,10 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     markGroupDone();
                     snackbarObserver.disconnect();
 
+                    getToastProfile();
+                    let reportDone = Promise.resolve();
                     if (grouptToPost.length > 0 && ToastProfile !== "" && nama_FB_Global !== "Unknown") {
-                        kirimDataKeLokal({
+                        reportDone = kirimDataKeLokal({
                             "type": "Online",
                             "profile": ToastProfile,
                             "account": {
@@ -304,10 +306,13 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     console.log("diposting Sudah Berhasil _____________REALTIME_SUCCESS_________");
 
                     Blockafter();
-                    setTimeout(() => {
-                        if (masterObserver) masterObserver.disconnect();
-                        location.href = "about:blank";
-                    }, 0);
+                    // Pastikan laporan "Diposting" selesai terkirim ke /activity sebelum pindah ke about:blank
+                    Promise.race([reportDone, new Promise(r => setTimeout(r, 2500))]).then(() => {
+                        setTimeout(() => {
+                            if (masterObserver) masterObserver.disconnect();
+                            location.href = "about:blank";
+                        }, 1500);
+                    });
                 }
             }
         });
@@ -830,7 +835,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
 
             setTimeout(() => {
                 location.href = "about:blank";
-            }, 0);
+            }, 30000);
         });
 
     }
@@ -869,18 +874,12 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                         sendBtn.click();
                         console.timeEnd("Kirim Komentar");
                         console.timeEnd("Data Ditemukan Sampai Prosess");
-                        Blockafter();
-                        window.focus();
-                        if (window.runBypassTurbo) window.runBypassTurbo();
-                        handlePostSuccess();
-                        if (myObservere) { myObservere.disconnect(); myObservere = null; }
-                        if (botObserver) botObserver.disconnect();
-
                         if (ToastProfile === "") {
                             const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
                             if (toast && toast.textContent) ToastProfile = toast.textContent.trim();
                         }
 
+                        // Kirim status "Komentari" DULU sebelum handlePostSuccess agar langsung tercatat di /activity
                         kirimDataKeLokal({
                             "type": "Online",
                             "profile": ToastProfile,
@@ -891,6 +890,13 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                             "models": "Komentari",
                             "pasar": pasar
                         });
+
+                        Blockafter();
+                        window.focus();
+                        if (window.runBypassTurbo) window.runBypassTurbo();
+                        handlePostSuccess();
+                        if (myObservere) { myObservere.disconnect(); myObservere = null; }
+                        if (botObserver) botObserver.disconnect();
 
                         return true;
                     }
@@ -1091,6 +1097,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 low !== "beranda" &&
                 low !== "home" &&
                 !low.includes("log in") &&
+                !low.includes("login") &&
                 !low.includes("masuk") &&
                 !low.includes("checkpoint") &&
                 !low.includes("error");
@@ -1220,11 +1227,11 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         });
     }
 
-    const LIVE_MONITOR_URLS = [
-        "http://localhost:3001/api/data",
-        "http://localhost:3001/api/data",
-        "http://103.250.10.250:3001/api/data"
+    const LOCAL_MONITOR_URLS = [
+        "http://localhost:3000/api/data",
+        "http://localhost:3001/api/data"
     ];
+    const REMOTE_MONITOR_FALLBACK_URL = "http://103.250.10.250:3000/api/data";
 
     function getToastProfile() {
         if (ToastProfile) return ToastProfile;
@@ -1236,56 +1243,60 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
     }
 
     function kirimDataKeLokal(payloadObj) {
-        try {
-            if (!payloadObj || !payloadObj.type || !payloadObj.account) return;
-            if (!payloadObj.profile) {
-                payloadObj.profile = getToastProfile();
-            }
-            // Pastikan pasar selalu ada agar server.js tidak mengabaikan pembuatan activity card
-            if (!payloadObj.pasar) {
-                payloadObj.pasar = typeof pasar !== 'undefined' && pasar ? pasar : "HK";
-            }
+        return new Promise((resolve) => {
+            try {
+                if (!payloadObj || !payloadObj.type || !payloadObj.account) {
+                    resolve(false);
+                    return;
+                }
+                if (!payloadObj.profile) {
+                    payloadObj.profile = getToastProfile();
+                }
+                // Pastikan pasar selalu ada agar server.js tidak mengabaikan pembuatan activity card
+                if (!payloadObj.pasar) {
+                    payloadObj.pasar = typeof pasar !== 'undefined' && pasar ? pasar : "HK";
+                }
 
-            const serialized = JSON.stringify(payloadObj);
-
-            const sendToIndex = (idx) => {
-                if (idx >= LIVE_MONITOR_URLS.length) return;
-                const targetUrl = LIVE_MONITOR_URLS[idx];
-                GM_xmlhttpRequest({
-                    method: "POST",
-                    url: targetUrl,
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    data: serialized,
-                    timeout: 3000,
-
-                    onload: function (response) {
-                        if (response.status >= 200 && response.status < 300) {
-                            console.log(`[kirimDataKeLokal] Terkirim ke ${targetUrl} | Status:`, response.status, "Respon:", response.responseText);
-                        } else {
-                            sendToIndex(idx + 1);
-                        }
-                    },
-                    onerror: function (err) {
-                        if (idx + 1 < LIVE_MONITOR_URLS.length) {
-                            sendToIndex(idx + 1);
-                        } else {
-                            console.log(`[kirimDataKeLokal] Error koneksi (${targetUrl}):`, err);
-                        }
-                    },
-                    ontimeout: function () {
-                        sendToIndex(idx + 1);
-                    },
-                    onabort: function () {
+                const serialized = JSON.stringify(payloadObj);
+                const postUrl = (targetUrl) => new Promise((resUrl) => {
+                    try {
+                        GM_xmlhttpRequest({
+                            method: "POST",
+                            url: targetUrl,
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+                            data: serialized,
+                            timeout: 3000,
+                            onload: function (response) {
+                                if (response.status >= 200 && response.status < 300) {
+                                    console.log(`[kirimDataKeLokal] Terkirim ke ${targetUrl} | Status:`, response.status, "Respon:", response.responseText);
+                                    resUrl(true);
+                                } else {
+                                    resUrl(false);
+                                }
+                            },
+                            onerror: function () { resUrl(false); },
+                            ontimeout: function () { resUrl(false); },
+                            onabort: function () { resUrl(false); }
+                        });
+                    } catch (e) {
+                        resUrl(false);
                     }
                 });
-            };
 
-            // Urutan otomatis: localhost:3000 (PC 1) -> localhost:3001 (PC 2) -> remote VPS :3000
-            sendToIndex(0);
-        } catch (e) {
-        }
+                // Kirim paralel ke localhost:3000 (PC 1) & localhost:3001 (PC 2) agar instan tanpa menunggu gagal berurutan
+                Promise.all(LOCAL_MONITOR_URLS.map(u => postUrl(u))).then((results) => {
+                    if (results.some(Boolean)) {
+                        resolve(true);
+                    } else {
+                        postUrl(REMOTE_MONITOR_FALLBACK_URL).then(resolve);
+                    }
+                });
+            } catch (e) {
+                resolve(false);
+            }
+        });
     }
 
     async function sendToTelegram(message, forceAccountName = null) {
