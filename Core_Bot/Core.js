@@ -1081,14 +1081,112 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         if (targetId) {
             console.log(`%c[Otomatis] Berhasil menemukan User ID: ${targetId}`, 'color: #00ff00; font-weight: bold; font-size: 16px;');
         }
-        return new Promise((resolve, reject) => {
+
+        const isValidFbName = (n) => {
+            if (!n) return false;
+            const clean = n.trim();
+            const low = clean.toLowerCase();
+            return clean.length >= 2 &&
+                low !== "facebook" &&
+                low !== "beranda" &&
+                low !== "home" &&
+                !low.includes("log in") &&
+                !low.includes("masuk") &&
+                !low.includes("checkpoint") &&
+                !low.includes("error");
+        };
+
+        const decodeFbName = (raw) => {
+            if (!raw) return "";
+            let s = raw;
+            try {
+                s = JSON.parse('"' + raw.replace(/"/g, '\\"') + '"');
+            } catch (e) { }
+            const tmp = document.createElement("textarea");
+            tmp.innerHTML = s;
+            return tmp.value
+                .replace(/\s*\|\s*Facebook$/i, '')
+                .replace(/\s*-\s*Facebook$/i, '')
+                .trim();
+        };
+
+        const extractCurrentUserFromPage = (html) => {
+            if (!html) return "";
+            const m = html.match(/"CurrentUserInitialData"[\s\S]{0,600}?"NAME"\s*:\s*"([^"]+)"/);
+            if (m && m[1]) {
+                const candidate = decodeFbName(m[1]);
+                if (isValidFbName(candidate)) return candidate;
+            }
+            return "";
+        };
+
+        const extractNameFromProfileHtml = (html) => {
+            if (!html) return "";
+            const patterns = [
+                /"CurrentUserInitialData"[\s\S]{0,600}?"NAME"\s*:\s*"([^"]+)"/,
+                /"__(?:isProfile|typename)"\s*:\s*"(?:User|Page)"\s*,\s*"name"\s*:\s*"([^"]+)"/,
+                /"name"\s*:\s*"([^"]+)"\s*,\s*"__(?:isProfile|typename)"\s*:\s*"(?:User|Page)"/,
+                /<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i,
+                /<title>([\s\S]*?)<\/title>/i
+            ];
+            for (const rx of patterns) {
+                const m = html.match(rx);
+                if (m && m[1]) {
+                    const candidate = decodeFbName(m[1]);
+                    if (isValidFbName(candidate)) return candidate;
+                }
+            }
+            return "";
+        };
+
+        return new Promise(async (resolve) => {
             if (window.top !== window.self || !targetId) {
                 resolve("Unknown");
                 return;
             }
 
-            const url = `https://www.facebook.com/profile.php?id=${targetId}`;
-            console.log(`[Script] 🔍 Memaksa cari via Desktop (www) untuk ID: ${targetId}...`);
+            // 1. Cek cache localStorage per c_user (0 request tambahan ke Facebook)
+            const cacheKey = `FB_ACCOUNT_NAME_${targetId}`;
+            try {
+                const cached = localStorage.getItem(cacheKey);
+                if (isValidFbName(cached)) {
+                    resolve(cached.trim());
+                    return;
+                }
+            } catch (e) { }
+
+            // 2. Cek CurrentUserInitialData langsung dari HTML halaman saat ini (tanpa request jaringan)
+            try {
+                const localName = extractCurrentUserFromPage(document.documentElement.innerHTML);
+                if (isValidFbName(localName)) {
+                    try { localStorage.setItem(cacheKey, localName); } catch (e) { }
+                    resolve(localName);
+                    return;
+                }
+            } catch (e) { }
+
+            // 3. Fallback: ambil dari m.facebook.com/profile.php (same-origin, UA mobile asli browser — TIDAK pernah pakai www / Windows 10)
+            const mobileOrigin = location.hostname.includes("facebook.com") ? location.origin : "https://m.facebook.com";
+            const url = `${mobileOrigin}/profile.php?id=${targetId}`;
+            console.log(`[Script] 🔍 Mengambil nama akun via Mobile (${mobileOrigin}) untuk ID: ${targetId}...`);
+
+            try {
+                const res = await fetch(url, {
+                    method: "GET",
+                    credentials: "include"
+                });
+                if (res.ok) {
+                    const html = await res.text();
+                    const userName = extractNameFromProfileHtml(html);
+                    if (isValidFbName(userName)) {
+                        try { localStorage.setItem(cacheKey, userName); } catch (e) { }
+                        resolve(userName);
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.warn("[Script] Fetch mobile profile gagal, fallback GM_xmlhttpRequest:", e);
+            }
 
             GM_xmlhttpRequest({
                 method: "GET",
@@ -1096,52 +1194,22 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 withCredentials: true,
                 anonymous: false,
                 headers: {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "Sec-Fetch-Site": "same-origin",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Upgrade-Insecure-Requests": "1"
+                    "User-Agent": navigator.userAgent,
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
                 },
                 onload: function (response) {
                     if (response.status !== 200) {
-                        console.warn(`Gagal mengakses profil. Status: ${response.status}`);
+                        console.warn(`Gagal mengakses profil mobile. Status: ${response.status}`);
                         resolve("Unknown");
                         return;
                     }
-
-                    const html = response.responseText;
-                    let userName = "";
-
-                    let jsonMatch = html.match(/"__(?:isProfile|typename)":"(?:User|Page)","name":"([^"]+)"/) ||
-                        html.match(/"name":"([^"]+)","__isProfile":"(?:User|Page)"/);
-                    if (jsonMatch) userName = jsonMatch[1];
-
-                    if (!userName || userName.trim() === "Facebook") {
-                        let metaMatch = html.match(/<meta property="og:title" content="([^"]+)"/i);
-                        if (metaMatch) userName = metaMatch[1];
-                    }
-
-                    if (!userName || userName.trim() === "Facebook") {
-                        let titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
-                        if (titleMatch) userName = titleMatch[1];
-                    }
-
-                    if (userName) {
-                        try {
-                            userName = JSON.parse('"' + userName.replace(/"/g, '\\"') + '"');
-                        } catch (e) { }
-
-                        userName = userName.replace(/ \| Facebook$/i, '')
-                            .replace(/ - Facebook$/i, '')
-                            .trim();
-                    }
-
-                    if (!userName || userName === "Facebook" || userName.includes("Log in")) {
-                        console.warn("Gagal mendapatkan nama.");
-                        resolve("Unknown");
-                    } else {
-                        // PENTING: Gunakan resolve() untuk menggantikan return
+                    const userName = extractNameFromProfileHtml(response.responseText);
+                    if (isValidFbName(userName)) {
+                        try { localStorage.setItem(cacheKey, userName); } catch (e) { }
                         resolve(userName);
+                    } else {
+                        console.warn("Gagal mendapatkan nama dari halaman mobile.");
+                        resolve("Unknown");
                     }
                 },
                 onerror: function (error) {
