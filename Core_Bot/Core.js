@@ -283,10 +283,11 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     console.log("diposting Sudah Berhasil _____________REALTIME_SUCCESS_________");
 
                     Blockafter();
+                    const closeDelay = 25000 + Math.floor(Math.random() * 20000);
                     setTimeout(() => {
                         if (masterObserver) masterObserver.disconnect();
                         location.href = "about:blank";
-                    }, 30000);
+                    }, closeDelay);
                 }
             }
         });
@@ -646,68 +647,65 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         if (skiper || document.querySelector(".loading-overlay") || ceksimulasi == true) return;
         ceksimulasi = true;
         if (document.hidden) {
-            window.scrollTo(0, 0); // Scroll instan jika di background untuk efisiensi
+            window.scrollTo(0, 0);
         } else {
             window.scrollTo({
                 top: 0,
                 behavior: 'smooth'
             });
         }
-        // Gunakan penamaan variabel yang sangat unik agar tidak bentrok
-        const _startX = window.innerWidth / 2;
-        const _startY = 150;
-        const _steps = 25;
-        const _duration = refresh;
-        const _identifier = Date.now();
+        const _startX = Math.round((window.innerWidth / 2) + (Math.random() * 40 - 20));
+        const _startY = 140 + Math.floor(Math.random() * 35);
+        const _steps = 14 + Math.floor(Math.random() * 9);
+        const _distance = distance + Math.floor(Math.random() * 80 - 40);
+        const _identifier = Date.now() % 100000;
 
-        // 1. Fungsi pembantu untuk membuat Touch Event
         const createTouchEvent = (type, x, y) => {
+            const r = +(2.0 + Math.random() * 1.8).toFixed(2);
+            const f = +(0.35 + Math.random() * 0.35).toFixed(2);
             const touchObj = new Touch({
                 identifier: _identifier,
                 target: document.body,
                 clientX: x,
                 clientY: y,
                 pageY: y,
-                radiusX: 2.5,
-                radiusY: 2.5,
-                force: 0.5,
+                radiusX: r,
+                radiusY: r,
+                force: f,
             });
 
             return new TouchEvent(type, {
                 cancelable: true,
                 bubbles: true,
-                touches: [touchObj],
-                targetTouches: [touchObj],
+                touches: type === 'touchend' ? [] : [touchObj],
+                targetTouches: type === 'touchend' ? [] : [touchObj],
                 changedTouches: [touchObj]
             });
         };
 
-        // 2. Kirim Touch Start
         document.dispatchEvent(createTouchEvent('touchstart', _startX, _startY));
 
-        // 3. Jalankan Gerakan Menarik (Interval)
-        // Gunakan MessageChannel sebagai pengganti setInterval untuk bypass background throttling
         let _currentStep = 0;
-        const channel = new MessageChannel();
-
         const stepLoop = () => {
             _currentStep++;
-            const _currentY = _startY + (distance * (_currentStep / _steps));
+            const progress = _currentStep / _steps;
+            const _curX = Math.round(_startX + (Math.random() * 6 - 3));
+            const _currentY = Math.round(_startY + (_distance * progress));
 
-            document.dispatchEvent(createTouchEvent('touchmove', _startX, _currentY));
+            document.dispatchEvent(createTouchEvent('touchmove', _curX, _currentY));
 
             if (_currentStep < _steps) {
-                channel.port2.postMessage(null);
+                setTimeout(stepLoop, 18 + Math.floor(Math.random() * 12));
             } else {
-                document.dispatchEvent(createTouchEvent('touchend', _startX, _currentY));
-                console.log("✅ Background Pull-to-Refresh Selesai.");
+                setTimeout(() => {
+                    document.dispatchEvent(createTouchEvent('touchend', _curX, _currentY));
+                    ceksimulasi = false;
+                    console.log("✅ Pull-to-Refresh Natural Selesai.");
+                }, 20 + Math.floor(Math.random() * 20));
             }
         };
 
-        channel.port1.onmessage = stepLoop;
-        document.dispatchEvent(createTouchEvent('touchstart', _startX, _startY));
-        channel.port2.postMessage(null); // Mulai loop
-        ceksimulasi = false;
+        setTimeout(stepLoop, 18 + Math.floor(Math.random() * 12));
     }
 
 
@@ -807,9 +805,10 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 });
             }, 12000);
 
+            const postCloseDelay = 25000 + Math.floor(Math.random() * 20000);
             setTimeout(() => {
                 location.href = "about:blank";
-            }, 30000);
+            }, postCloseDelay);
         });
 
     }
@@ -1479,6 +1478,8 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 refreshNonUser = 5000;
             }
 
+            const nextRefreshDelay = () => refreshNonUser + Math.floor(Math.random() * 1400);
+
             // 2. Deteksi Perubahan: Cukup bandingkan ID postingan teratas.
             // Karena setiap refresh ID akan berubah, ini cara tercepat untuk mendeteksi pembaruan data.
             const isUserPage = cekurlutama.includes("user");
@@ -1488,14 +1489,14 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 const topPost1 = document.querySelector('[data-tracking-duration-id]');
                 currentFeedState = topPost1?.querySelector("[data-fd-action]")?.getAttribute("data-fd-action");
                 if (currentFeedState == lastRefreshFeedState) {
-                    setTimeout(heartbeat, refreshNonUser);
+                    setTimeout(heartbeat, nextRefreshDelay());
                     return;
                 }
             }
 
             if (document.querySelector(".loading-overlay")) {
                 lastRefreshFeedState = "re"
-                setTimeout(heartbeat, refreshNonUser);
+                setTimeout(heartbeat, nextRefreshDelay());
                 return;
             }
             if (!document.querySelector(".prevent-scrolling")) {
@@ -1510,7 +1511,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     });
                 }
             }
-            setTimeout(heartbeat, refreshNonUser);
+            setTimeout(heartbeat, nextRefreshDelay());
         };
         heartbeat();
     }
