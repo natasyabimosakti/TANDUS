@@ -2,27 +2,12 @@
 window.initBabonLogic = function (namagroup19, Comment19, comment19) {
 
     var PortServer =
-        // --- 1. ANTI-THROTTLE & KEEP-ALIVE (Solusi Tab Background) ---a
+        // --- 1. KEEP-ALIVE RINGAN (Tanpa memblokir focus/blur/addEventListener native Facebook) ---
         (function () {
-            // Memaksa properti visibility agar selalu 'visible'
-            Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true });
-            Object.defineProperty(document, 'hidden', { value: false, writable: true });
-            Object.defineProperty(document, 'hasFocus', { value: () => true, writable: true });
-
-            // Blokir event listener yang mencoba mendeteksi perpindahan tab
-            const origAddEventListener = EventTarget.prototype.addEventListener;
-            EventTarget.prototype.addEventListener = function (type, listener, options) {
-                if (['visibilitychange', 'blur', 'focus', 'pagehide', 'webkitvisibilitychange'].includes(type)) return;
-                return origAddEventListener.call(this, type, listener, options);
-            };
-
-            setInterval(() => {
-                if (document.hidden !== false) {
-                    Object.defineProperty(document, 'hidden', { value: false, writable: true });
-                    Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true });
-                    window.dispatchEvent(new Event('mousemove'));
-                }
-            }, 100); // Heartbeat stabil menjaga status 'visible' palsu
+            try {
+                Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+                Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+            } catch (e) { }
         })();
 
 
@@ -152,7 +137,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         }
     }
     var nama_FB_Global = "Unknown"
-    var keyword = ["●HONGKONG●","ROM", "P4S4RAN", "P4S4RAN SGP", "PASARAN SDY", "T-BAK", "ROOM", "R**M", "𝗥𝗢𝗢𝗠", "LOMBA", "𝗟𝗢𝗠𝗕𝗔", "𝐋𝐎𝗠𝗕𝐀", "LIMBA", "ROM", "R00M", "login", "𝐑𝐎𝐎𝐌", "nemo", "l0mb4", "lomb4", "l0mba", "𝗥𝟬𝟬𝗠", "𝗟𝟬𝗠𝗕𝗔", "𝘙𝘖𝘖𝘔", "hatori", "klikh4tori001", "🅻🅾🅼🅱🅰"]
+    var keyword = ["●HONGKONG●", "ROM", "P4S4RAN", "P4S4RAN SGP", "PASARAN SDY", "T-BAK", "ROOM", "R**M", "𝗥𝗢𝗢𝗠", "LOMBA", "𝗟𝗢𝗠𝗕𝗔", "𝐋𝐎𝗠𝗕𝐀", "LIMBA", "ROM", "R00M", "login", "𝐑𝐎𝐎𝐌", "nemo", "l0mb4", "lomb4", "l0mba", "𝗥𝟬𝟬𝗠", "𝗟𝟬𝗠𝗕𝗔", "𝘙𝘖𝘖𝘔", "hatori", "klikh4tori001", "🅻🅾🅼🅱🅰"]
     var Backlist = ["pemenang lomba", "rekap", "natidulu", "room lomba freebet", "result", "juara lomba", "r3k4p", "r3kap", "rek4p", "undang"]
     var URLADMIN = "http://127.0.0.1:8080/Admin_group_Baru.json";
     var TELEGRAM_TOKEN = '8841941027:-qJTrFa4';
@@ -160,8 +145,8 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
     let adminList = [];
     var SCRIPT_NAME = Comment19
     let isAdminListReady = false; // Flag penanda kesiapan data
-    var refresh = 300; // Percepat durasi animasi tarik layar agar selesai dalam 200ms
-    var refreshNonUser = 300;
+    var refresh = 2000; // Interval wajar (2 detik) agar tidak memicu deteksi spam refresh
+    var refreshNonUser = 2000;
     let commentDone = false; // Flag untuk menghentikan aksi jika bot sudah selesai bertugas
     let lastRefreshFeedState = "20"; // Menyimpan ID postingan terakhir untuk mendeteksi perubahan feed
     let lastObservedUrl = location.href;
@@ -195,17 +180,9 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
     const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set ||
         Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
 
-    // 2. OPTIMISASI GLOBAL: Matikan logger Facebook agar proses click() menjadi instan (< 0.1ms)
+    // 2. OPTIMISASI GLOBAL (Safe Mode): Jangan matikan logger/telemetry & scheduler internal Facebook
     function Optimisasi() {
-        if (window.WebLiteClientLogger) window.WebLiteClientLogger.logEvent = () => null;
-        if (window.MarauderLogger) window.MarauderLogger.logEvent = () => null;
-        if (window.WebLitePipe) {
-            window.WebLitePipe.callAfterScreenRendered = (f) => f();
-            window.WebLitePipe.setFirstResponseComplete();
-        }
-        // Bypass GWT scheduler untuk mempercepat flush data socket
-        const gwt = window.GWT || window.$gwt;
-        if (gwt) gwt.scheduleDeferred = (task) => typeof task === 'function' ? task() : task?.execute?.();
+        // Dibiarkan aktif apa adanya agar telemetry interaksi Facebook tetap wajar & tidak memicu checkpoint
     }
     Optimisasi();
     // Gunakan unsafeWindow jika kamu bermain di Tampermonkey/Violentmonkey
@@ -864,36 +841,57 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     if (textarea && sendBtn) {
                         commentDone = true;
                         console.time("Kirim Komentar");
+                        textarea.focus();
                         if (nativeSetter) nativeSetter.call(textarea, commentToPost);
                         else textarea.value = commentToPost;
-                        sendBtn.disabled = false;
-                        sendBtn.dispatchEvent(mDown);
-                        sendBtn.click();
-                        console.timeEnd("Kirim Komentar");
-                        console.timeEnd("Data Ditemukan Sampai Prosess");
-                        if (ToastProfile === "") {
-                            const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
-                            if (toast && toast.textContent) ToastProfile = toast.textContent.trim();
+                        try {
+                            textarea.dispatchEvent(new InputEvent("input", {
+                                bubbles: true,
+                                cancelable: true,
+                                inputType: "insertText",
+                                data: commentToPost
+                            }));
+                        } catch (e) {
+                            textarea.dispatchEvent(new Event("input", { bubbles: true }));
                         }
+                        textarea.dispatchEvent(new Event("change", { bubbles: true }));
 
-                        // Kirim status "Komentari" DULU sebelum handlePostSuccess agar langsung tercatat di /activity
-                        kirimDataKeLokal({
-                            "type": "Online",
-                            "profile": ToastProfile,
-                            "account": {
-                                [SCRIPT_NAME]: nama_FB_Global
-                            },
-                            "group": grouptToPost,
-                            "models": "Komentari",
-                            "pasar": pasar
-                        });
+                        // Jeda singkat natural (120-250ms) + klik pada koordinat asli tombol agar tidak 0ms sintetis
+                        const naturalDelay = 120 + Math.floor(Math.random() * 130);
+                        setTimeout(() => {
+                            const rect = sendBtn.getBoundingClientRect();
+                            const cx = Math.round(rect.left + rect.width / 2);
+                            const cy = Math.round(rect.top + rect.height / 2);
+                            const clickOpts = { bubbles: true, cancelable: true, clientX: cx, clientY: cy };
+                            sendBtn.disabled = false;
+                            sendBtn.dispatchEvent(new MouseEvent("mousedown", clickOpts));
+                            sendBtn.dispatchEvent(new MouseEvent("mouseup", clickOpts));
+                            sendBtn.click();
+                            console.timeEnd("Kirim Komentar");
+                            console.timeEnd("Data Ditemukan Sampai Prosess");
+                            if (ToastProfile === "") {
+                                const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
+                                if (toast && toast.textContent) ToastProfile = toast.textContent.trim();
+                            }
 
-                        Blockafter();
-                        window.focus();
-                        if (window.runBypassTurbo) window.runBypassTurbo();
-                        handlePostSuccess();
-                        if (myObservere) { myObservere.disconnect(); myObservere = null; }
-                        if (botObserver) botObserver.disconnect();
+                            // Kirim status "Komentari" DULU sebelum handlePostSuccess agar langsung tercatat di /activity
+                            kirimDataKeLokal({
+                                "type": "Online",
+                                "profile": ToastProfile,
+                                "account": {
+                                    [SCRIPT_NAME]: nama_FB_Global
+                                },
+                                "group": grouptToPost,
+                                "models": "Komentari",
+                                "pasar": pasar
+                            });
+
+                            Blockafter();
+                            window.focus();
+                            handlePostSuccess();
+                            if (myObservere) { myObservere.disconnect(); myObservere = null; }
+                            if (botObserver) botObserver.disconnect();
+                        }, naturalDelay);
 
                         return true;
                     }
@@ -981,37 +979,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         adamasalah(cleanText);
     }
     window.runBypassTurbo = function () {
-        try {
-            const gwt = window.GWT || window.$gwt;
-            if (gwt) {
-                gwt.scheduleDeferred = (task) => {
-                    if (typeof task === 'function') task();
-                    else if (task && typeof task.execute === 'function') task.execute();
-                };
-                gwt.runAsync = (id, cb) => { if (cb && cb.onSuccess) cb.onSuccess(); };
-
-
-                if (typeof gwt.flushDeferredCommands === 'function') {
-                    gwt.flushDeferredCommands();
-                }
-            }
-            if (window.WebLitePipe && typeof window.WebLitePipe.setFlushComplete === 'function') {
-                window.WebLitePipe.setFlushComplete(0);
-            }
-            if (typeof window.FKc === "function") window.FKc = (a) => a;
-
-            const dispatcher = window.Dispatcher || window.AppDispatcher;
-            if (dispatcher && typeof dispatcher.flush === 'function') {
-                dispatcher.flush();
-            }
-
-            const logger = window.WebLiteClientLogger || window.MarauderLogger;
-            if (logger) logger.logEvent = () => null;
-
-            console.log("⚡ Turbo Triggered: Verifikasi dibypass & Socket dipaksa flush!");
-        } catch (e) {
-            console.error("⚠️ Turbo Error (Handled):", e);
-        }
+        // Dinonaktifkan agar tidak mematikan WebLiteClientLogger/MarauderLogger/GWT internal Facebook
     };
     async function cekMasalah2() {
         if (sudahkirim) return;
@@ -1169,44 +1137,50 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 }
             } catch (e) { }
 
-            // 3. Fallback persis seperti TANDUS: ambil dari www.facebook.com/profile.php?id=<c_user>
-            //    (karena m.facebook.com WebLite tidak merender nama di HTML mentah),
-            //    lalu cache di localStorage per c_user agar HANYA 1x request per akun!
-            const url = `https://www.facebook.com/profile.php?id=${targetId}`;
-            console.log(`[Script] 🔍 Mengambil nama akun untuk ID: ${targetId} (1x lalu dicache)...`);
-
-            GM_xmlhttpRequest({
-                method: "GET",
-                url: url,
-                withCredentials: true,
-                anonymous: false,
-                headers: {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "Sec-Fetch-Site": "same-origin",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Upgrade-Insecure-Requests": "1"
-                },
-                onload: function (response) {
-                    if (response.status !== 200) {
-                        console.warn(`Gagal mengakses profil. Status: ${response.status}`);
-                        resolve("Unknown");
-                        return;
-                    }
-                    const userName = extractNameFromProfileHtml(response.responseText);
-                    if (isValidFbName(userName)) {
-                        try { localStorage.setItem(cacheKey, userName); } catch (e) { }
-                        resolve(userName);
-                    } else {
-                        console.warn("Gagal mendapatkan nama.");
-                        resolve("Unknown");
-                    }
-                },
-                onerror: function (error) {
-                    console.warn(`Request Error: ${error}`);
-                    resolve("Unknown");
+            // 3. Ambil nama HANYA lewat endpoint Mobile dengan navigator.userAgent asli
+            //    (TIDAK pernah menembak www.facebook.com dengan UA Windows 10)
+            const fetchMobileName = (urls, idx) => {
+                if (idx >= urls.length) {
+                    // Fallback aman pakai ID c_user agar /activity tetap berjalan & tidak kosong
+                    resolve(`ID_${targetId}`);
+                    return;
                 }
-            });
+                const targetUrl = urls[idx];
+                GM_xmlhttpRequest({
+                    method: "GET",
+                    url: targetUrl,
+                    withCredentials: true,
+                    anonymous: false,
+                    timeout: 5000,
+                    headers: {
+                        "User-Agent": navigator.userAgent,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    },
+                    onload: function (response) {
+                        if (response.status === 200) {
+                            const userName = extractNameFromProfileHtml(response.responseText);
+                            if (isValidFbName(userName)) {
+                                try { localStorage.setItem(cacheKey, userName); } catch (e) { }
+                                resolve(userName);
+                                return;
+                            }
+                        }
+                        fetchMobileName(urls, idx + 1);
+                    },
+                    onerror: function () {
+                        fetchMobileName(urls, idx + 1);
+                    },
+                    ontimeout: function () {
+                        fetchMobileName(urls, idx + 1);
+                    }
+                });
+            };
+
+            console.log(`[Script] 🔍 Mengambil nama akun via Mobile untuk ID: ${targetId}...`);
+            fetchMobileName([
+                `https://mbasic.facebook.com/profile.php`,
+                `https://m.facebook.com/profile.php?id=${targetId}`
+            ], 0);
         });
     }
 
