@@ -1036,14 +1036,15 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
         var targetId = "";
 
         // 1. Prioritas utama: ambil c_user langsung dari cookie (paling akurat & instan di m.facebook.com)
+        const isValidUid = (id) => /^[1-9]\d{4,}$/.test(String(id || "").trim());
         const matchCookie = document.cookie.match(/(?:^|;\s*)c_user=(\d+)/);
-        if (matchCookie && matchCookie[1]) {
+        if (matchCookie && isValidUid(matchCookie[1])) {
             targetId = matchCookie[1];
         } else {
-            // 2. Fallback: cari di HTML halaman
+            // 2. Fallback: cari di HTML halaman (abaikan ID "0" saat belum login)
             const html = document.documentElement.innerHTML;
-            const matchHtml = html.match(/"(?:userid|USER_ID|ACCOUNT_ID|actorID)"\s*:\s*"?(\d+)"?/i);
-            if (matchHtml && matchHtml[1]) {
+            const matchHtml = html.match(/"(?:userid|USER_ID|ACCOUNT_ID|actorID)"\s*:\s*"?([1-9]\d{4,})"?/i);
+            if (matchHtml && isValidUid(matchHtml[1])) {
                 targetId = matchHtml[1];
             }
         }
@@ -1057,6 +1058,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
             const clean = n.trim();
             const low = clean.toLowerCase();
             return clean.length >= 2 &&
+                !/^id_\d+$/i.test(clean) &&
                 low !== "facebook" &&
                 low !== "beranda" &&
                 low !== "home" &&
@@ -1136,50 +1138,38 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                 }
             } catch (e) { }
 
-            // 3. Ambil nama HANYA lewat endpoint Mobile dengan navigator.userAgent asli
-            //    (TIDAK pernah menembak www.facebook.com dengan UA Windows 10)
-            const fetchMobileName = (urls, idx) => {
-                if (idx >= urls.length) {
-                    // Fallback aman pakai ID c_user agar /activity tetap berjalan & tidak kosong
-                    resolve(`ID_${targetId}`);
-                    return;
-                }
-                const targetUrl = urls[idx];
-                GM_xmlhttpRequest({
-                    method: "GET",
-                    url: targetUrl,
-                    withCredentials: true,
-                    anonymous: false,
-                    timeout: 5000,
-                    headers: {
-                        "User-Agent": navigator.userAgent,
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                    },
-                    onload: function (response) {
-                        if (response.status === 200) {
-                            const userName = extractNameFromProfileHtml(response.responseText);
-                            if (isValidFbName(userName)) {
-                                try { localStorage.setItem(cacheKey, userName); } catch (e) { }
-                                resolve(userName);
-                                return;
-                            }
+            // 3. Ambil nama publik dari og:title TANPA cookie sesi akun (anonymous: true)
+            //    supaya tidak pernah ada bentrok UA pada sesi akun login
+            console.log(`[Script] 🔍 Mengambil nama akun publik (anonim, tanpa cookie) untuk ID: ${targetId}...`);
+            GM_xmlhttpRequest({
+                method: "GET",
+                url: `https://www.facebook.com/profile.php?id=${targetId}`,
+                withCredentials: false,
+                anonymous: true,
+                timeout: 6000,
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Sec-Fetch-Mode": "navigate"
+                },
+                onload: function (response) {
+                    if (response.status === 200) {
+                        const userName = extractNameFromProfileHtml(response.responseText);
+                        if (isValidFbName(userName)) {
+                            try { localStorage.setItem(cacheKey, userName); } catch (e) { }
+                            resolve(userName);
+                            return;
                         }
-                        fetchMobileName(urls, idx + 1);
-                    },
-                    onerror: function () {
-                        fetchMobileName(urls, idx + 1);
-                    },
-                    ontimeout: function () {
-                        fetchMobileName(urls, idx + 1);
                     }
-                });
-            };
-
-            console.log(`[Script] 🔍 Mengambil nama akun via Mobile untuk ID: ${targetId}...`);
-            fetchMobileName([
-                `https://mbasic.facebook.com/profile.php`,
-                `https://m.facebook.com/profile.php?id=${targetId}`
-            ], 0);
+                    resolve(`ID_${targetId}`);
+                },
+                onerror: function () {
+                    resolve(`ID_${targetId}`);
+                },
+                ontimeout: function () {
+                    resolve(`ID_${targetId}`);
+                }
+            });
         });
     }
 
