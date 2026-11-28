@@ -840,57 +840,35 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
                     if (textarea && sendBtn) {
                         commentDone = true;
                         console.time("Kirim Komentar");
-                        textarea.focus();
                         if (nativeSetter) nativeSetter.call(textarea, commentToPost);
                         else textarea.value = commentToPost;
-                        try {
-                            textarea.dispatchEvent(new InputEvent("input", {
-                                bubbles: true,
-                                cancelable: true,
-                                inputType: "insertText",
-                                data: commentToPost
-                            }));
-                        } catch (e) {
-                            textarea.dispatchEvent(new Event("input", { bubbles: true }));
+                        sendBtn.disabled = false;
+                        sendBtn.dispatchEvent(mDown);
+                        sendBtn.click();
+                        console.timeEnd("Kirim Komentar");
+                        console.timeEnd("Data Ditemukan Sampai Prosess");
+                        if (ToastProfile === "") {
+                            const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
+                            if (toast && toast.textContent) ToastProfile = toast.textContent.trim();
                         }
-                        textarea.dispatchEvent(new Event("change", { bubbles: true }));
 
-                        // Jeda singkat natural (120-250ms) + klik pada koordinat asli tombol agar tidak 0ms sintetis
-                        const naturalDelay = 120 + Math.floor(Math.random() * 130);
-                        setTimeout(() => {
-                            const rect = sendBtn.getBoundingClientRect();
-                            const cx = Math.round(rect.left + rect.width / 2);
-                            const cy = Math.round(rect.top + rect.height / 2);
-                            const clickOpts = { bubbles: true, cancelable: true, clientX: cx, clientY: cy };
-                            sendBtn.disabled = false;
-                            sendBtn.dispatchEvent(new MouseEvent("mousedown", clickOpts));
-                            sendBtn.dispatchEvent(new MouseEvent("mouseup", clickOpts));
-                            sendBtn.click();
-                            console.timeEnd("Kirim Komentar");
-                            console.timeEnd("Data Ditemukan Sampai Prosess");
-                            if (ToastProfile === "") {
-                                const toast = document.querySelector(".chrome-toast-profile") || document.querySelector(".toast-profile-selector");
-                                if (toast && toast.textContent) ToastProfile = toast.textContent.trim();
-                            }
+                        // Kirim status "Komentari" DULU sebelum handlePostSuccess agar langsung tercatat di /activity
+                        kirimDataKeLokal({
+                            "type": "Online",
+                            "profile": ToastProfile,
+                            "account": {
+                                [SCRIPT_NAME]: nama_FB_Global
+                            },
+                            "group": grouptToPost,
+                            "models": "Komentari",
+                            "pasar": pasar
+                        });
 
-                            // Kirim status "Komentari" DULU sebelum handlePostSuccess agar langsung tercatat di /activity
-                            kirimDataKeLokal({
-                                "type": "Online",
-                                "profile": ToastProfile,
-                                "account": {
-                                    [SCRIPT_NAME]: nama_FB_Global
-                                },
-                                "group": grouptToPost,
-                                "models": "Komentari",
-                                "pasar": pasar
-                            });
-
-                            Blockafter();
-                            window.focus();
-                            handlePostSuccess();
-                            if (myObservere) { myObservere.disconnect(); myObservere = null; }
-                            if (botObserver) botObserver.disconnect();
-                        }, naturalDelay);
+                        Blockafter();
+                        window.focus();
+                        handlePostSuccess();
+                        if (myObservere) { myObservere.disconnect(); myObservere = null; }
+                        if (botObserver) botObserver.disconnect();
 
                         return true;
                     }
@@ -1174,7 +1152,7 @@ window.initBabonLogic = function (namagroup19, Comment19, comment19) {
     }
 
     const LOCAL_MONITOR_URLS = [
-        "http://localhost:3000/api/data",
+        "http://localhost:3001/api/data",
         "http://localhost:3001/api/data"
     ];
     const REMOTE_MONITOR_FALLBACK_URL = "http://103.250.10.250:3001/api/data";
